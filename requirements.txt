@@ -4,3 +4,5 @@ python-dotenv
 requests
 line-bot-sdk
 pymongo
+requests
+logger
