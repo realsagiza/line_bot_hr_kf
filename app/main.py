@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, PostbackEvent
@@ -31,4 +31,6 @@ def handle_postback_event(event):
     handle_postback(event, line_bot_api)
 
 if __name__ == "__main__":
+    from approved_requests import approved_requests_bp  # ✅ Import blueprint สำหรับ API อนุมัติ
+    app.register_blueprint(approved_requests_bp)  # ✅ เพิ่ม API สำหรับดึงรายการที่อนุมัติ
     app.run(host="0.0.0.0", port=5001, debug=True)

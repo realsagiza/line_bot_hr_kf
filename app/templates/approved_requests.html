@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>รายการรออนุมัติ</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f8f9fa; color: #333; }
+        h2 { color: #333; }
+        table { width: 80%; margin: auto; border-collapse: collapse; background-color: white; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #007bff; color: white; font-weight: bold; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        .btn { padding: 8px 12px; border: none; cursor: pointer; font-size: 14px; margin: 2px; }
+        .approve { background-color: green; color: white; }
+        .reject { background-color: red; color: white; }
+    </style>
+    <script>
+        function updateRequestStatus(requestId, status) {
+            fetch(`/update-request-status/${requestId}/${status}`, {
+                method: "POST",
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === "success") {
+                    document.getElementById(`row-${requestId}`).remove();  // ลบแถวที่อัปเดตออก
+                } else {
+                    alert("เกิดข้อผิดพลาด กรุณาลองใหม่");
+                }
+            })
+            .catch(error => console.error("Error:", error));
+        }
+    </script>
+</head>
+<body>
+    <h2>📋 รายการรออนุมัติ</h2>
+    <table>
+        <tr>
+            <th>หมายเลขคำขอ</th>
+            <th>จำนวนเงิน</th>
+            <th>เหตุผล</th>
+            <th>สถานที่รับเงิน</th>
+            <th>สถานะ</th>
+            <th>การดำเนินการ</th>
+        </tr>
+        {% for request in requests %}
+        <tr id="row-{{ request.request_id }}">
+            <td>{{ request.request_id }}</td>
+            <td>{{ request.amount }} บาท</td>
+            <td>{{ request.reason }}</td>
+            <td>{{ request.location }}</td>
+            <td>{{ request.status }}</td>
+            <td>
+                <button class="btn approve" onclick="updateRequestStatus('{{ request.request_id }}', 'approved')">✅ อนุมัติ</button>
+                <button class="btn reject" onclick="updateRequestStatus('{{ request.request_id }}', 'rejected')">❌ ปฏิเสธ</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

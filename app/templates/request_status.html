@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>สถานะคำขอเบิกเงิน</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            background-color: #f8f9fa; 
+            color: #333;
+        }
+        h2 {
+            color: #333;
+        }
+        table { 
+            width: 80%; 
+            margin: auto; 
+            border-collapse: collapse; 
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            background-color: white;
+        }
+        th, td { 
+            padding: 12px; 
+            border: 1px solid #ddd; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #007bff; 
+            color: white; 
+            font-weight: bold;
+        }
+        tr:nth-child(even) { 
+            background-color: #f2f2f2; 
+        }
+        .approved { 
+            background-color: #d4edda; 
+            color: #155724; 
+        }
+        .rejected { 
+            background-color: #f8d7da; 
+            color: #721c24; 
+        }
+    </style>
+</head>
+<body>
+    <h2>✅ รายการที่อนุมัติแล้ว</h2>
+    <table>
+        <tr>
+            <th>หมายเลขคำขอ</th>
+            <th>จำนวนเงิน</th>
+            <th>เหตุผล</th>
+            <th>สถานที่รับเงิน</th>
+        </tr>
+        {% for request in approved_requests %}
+        <tr class="approved">
+            <td>{{ request.request_id }}</td>
+            <td>{{ request.amount }} บาท</td>
+            <td>{{ request.reason }}</td>
+            <td>{{ request.location }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>❌ รายการที่ถูกปฏิเสธ</h2>
+    <table>
+        <tr>
+            <th>หมายเลขคำขอ</th>
+            <th>จำนวนเงิน</th>
+            <th>เหตุผล</th>
+            <th>สถานที่รับเงิน</th>
+        </tr>
+        {% for request in rejected_requests %}
+        <tr class="rejected">
+            <td>{{ request.request_id }}</td>
+            <td>{{ request.amount }} บาท</td>
+            <td>{{ request.reason }}</td>
+            <td>{{ request.location }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

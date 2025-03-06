@@ -10,4 +10,26 @@ services:
       - .env
     volumes:
       - .:/app
+    depends_on:
+      - mongo
+    networks:
+      - internal_network
     restart: always
+
+  mongo:
+    image: mongo:latest
+    container_name: mongo-db
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      internal_network:
+        aliases:
+          - mongo  # ✅ ให้ MongoDB มี alias เป็น "mongo"
+
+networks:
+  internal_network:
+    driver: bridge
+
+volumes:
+  mongo_data:

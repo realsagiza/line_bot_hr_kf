@@ -1,7 +1,10 @@
+import uuid
+from pymongo import MongoClient
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction
 )
 from config import Config
+from db import requests_collection  # ✅ ใช้ connection pool
 
 # เก็บ state ของผู้ใช้
 user_session = {}
@@ -12,8 +15,14 @@ def reset_state(user_id):
         "state": "choosing_action",
         "amount": None,
         "reason": None,
-        "location": None
+        "license_plate": None,  # เพิ่มช่องหมายเลขทะเบียน
+        "location": None,
+        "request_id": None
     }
+
+def generate_request_id():
+    """ สร้างหมายเลขคำขอที่เป็น Unique """
+    return str(uuid.uuid4())[:8]  # ใช้แค่ 8 ตัวอักษรแรกของ UUID
 
 def handle_user_request(event, line_bot_api):
     """ เริ่มต้นใหม่เมื่อพิมพ์ 'เมนู' """
@@ -30,6 +39,34 @@ def handle_user_request(event, line_bot_api):
         )
     )
     line_bot_api.reply_message(event.reply_token, reply_message)
+
+
+def send_location_menu(user_id):
+    """ ส่งเมนูให้เลือกสถานที่รับเงิน """
+    return TemplateSendMessage(
+        alt_text="เลือกสถานที่รับเงิน",
+        template=ButtonsTemplate(
+            text="📌 กรุณาเลือกสถานที่รับเงิน",
+            actions=[
+                PostbackAction(label="คลังห้องเย็น", data=f"select_location|cold_storage|{user_id}"),
+                PostbackAction(label="โนนิโกะ", data=f"select_location|noniko|{user_id}")
+            ]
+        )
+    )
+
+def send_reason_menu(user_id):
+    """ ส่งเมนูให้เลือกเหตุผลในการเบิกเงิน """
+    return TemplateSendMessage(
+        alt_text="เลือกเหตุผลในการเบิกเงิน",
+        template=ButtonsTemplate(
+            text="📌 กรุณาเลือกเหตุผลในการเบิกเงิน",
+            actions=[
+                PostbackAction(label="ซื้อน้ำแข็ง", data=f"select_reason|ice|{user_id}"),
+                PostbackAction(label="เติมน้ำมัน", data=f"select_reason|fuel|{user_id}"),
+                PostbackAction(label="อื่นๆ", data=f"select_reason|other|{user_id}")
+            ]
+        )
+    )
 
 def handle_postback(event, line_bot_api):
     """ จัดการปุ่มกด """
@@ -63,7 +100,6 @@ def handle_postback(event, line_bot_api):
             user_session[user_id]["state"] = "waiting_for_amount"
             reply_message = TextSendMessage(text="📌 กรุณาพิมพ์จำนวนเงินที่ต้องการเบิก (ตัวเลขเท่านั้น)")
         else:
-            # ตรวจสอบว่าจำนวนเงินที่เลือกเป็นตัวเลขหรือไม่
             if not amount.isdigit():
                 reply_message = TextSendMessage(text="⚠️ กรุณาเลือกจำนวนเงินให้ถูกต้อง")
             else:
@@ -73,19 +109,22 @@ def handle_postback(event, line_bot_api):
 
     elif action == "select_reason":
         reason = data[1]
-        if reason == "other":
+        user_session[user_id]["reason"] = reason
+
+        if reason == "fuel":
+            user_session[user_id]["state"] = "waiting_for_license_plate"
+            reply_message = TextSendMessage(text="📌 กรุณากรอกหมายเลขทะเบียนรถ")
+        elif reason == "other":
             user_session[user_id]["state"] = "waiting_for_other_reason"
             reply_message = TextSendMessage(text="📌 กรุณาพิมพ์เหตุผลในการเบิกเงิน")
         else:
-            user_session[user_id]["reason"] = reason
             user_session[user_id]["state"] = "waiting_for_location"
             reply_message = send_location_menu(user_id)
 
     elif action == "select_location":
         user_session[user_id]["location"] = data[1]
         send_summary(user_id, line_bot_api)
-        reset_state(user_id)
-        return
+        return  # ไม่ reset state ที่นี่ เพราะต้องให้ตรวจสอบข้อมูลก่อน
 
     if reply_message:
         line_bot_api.reply_message(event.reply_token, reply_message)
@@ -105,21 +144,24 @@ def handle_text_input(event, line_bot_api):
 
     current_state = user_session[user_id]["state"]
 
-    if current_state == "waiting_for_amount" and text.isdigit():
-        user_session[user_id]["amount"] = text
-        user_session[user_id]["state"] = "choosing_reason"
-        reply_message = send_reason_menu(user_id)
-
-    elif current_state == "waiting_for_amount":
-        if text.isdigit():  # ตรวจสอบว่าพิมพ์เป็นตัวเลข
+    if current_state == "waiting_for_amount":
+        if text.isdigit():
             user_session[user_id]["amount"] = text
             user_session[user_id]["state"] = "choosing_reason"
             reply_message = send_reason_menu(user_id)
         else:
             reply_message = TextSendMessage(text="⚠️ กรุณากรอกจำนวนเงินเป็นตัวเลขเท่านั้น")
 
+    elif current_state == "waiting_for_license_plate":
+        if len(text.strip()) > 0:
+            user_session[user_id]["license_plate"] = text
+            user_session[user_id]["state"] = "waiting_for_location"
+            reply_message = send_location_menu(user_id)
+        else:
+            reply_message = TextSendMessage(text="⚠️ กรุณากรอกหมายเลขทะเบียนรถ")
+
     elif current_state == "waiting_for_other_reason":
-        if len(text.strip()) > 0:  # ตรวจสอบว่าผู้ใช้พิมพ์เหตุผลที่สมเหตุสมผล
+        if len(text.strip()) > 0:
             user_session[user_id]["reason"] = text
             user_session[user_id]["state"] = "waiting_for_location"
             reply_message = send_location_menu(user_id)
@@ -128,45 +170,45 @@ def handle_text_input(event, line_bot_api):
 
     line_bot_api.reply_message(event.reply_token, reply_message)
 
-def send_reason_menu(user_id):
-    """ ส่งเมนูให้เลือกเหตุผลในการเบิกเงิน """
-    return TemplateSendMessage(
-        alt_text="เลือกเหตุผลในการเบิกเงิน",
-        template=ButtonsTemplate(
-            text="📌 กรุณาเลือกเหตุผลในการเบิกเงิน",
-            actions=[
-                PostbackAction(label="ซื้อน้ำแข็ง", data=f"select_reason|ice|{user_id}"),
-                PostbackAction(label="เติมน้ำมัน", data=f"select_reason|fuel|{user_id}"),
-                PostbackAction(label="อื่นๆ", data=f"select_reason|other|{user_id}")
-            ]
-        )
-    )
-
-def send_location_menu(user_id):
-    """ ส่งเมนูให้เลือกสถานที่รับเงิน """
-    return TemplateSendMessage(
-        alt_text="เลือกสถานที่รับเงิน",
-        template=ButtonsTemplate(
-            text="📌 กรุณาเลือกสถานที่รับเงิน",
-            actions=[
-                PostbackAction(label="คลังห้องเย็น", data=f"select_location|cold_storage|{user_id}"),
-                PostbackAction(label="โนนิโกะ", data=f"select_location|noniko|{user_id}")
-            ]
-        )
-    )
-
 def send_summary(user_id, line_bot_api):
-    """ ส่งสรุปคำขอและแจ้งรออนุมัติ """
-    amount = user_session[user_id]["amount"]
-    reason = user_session[user_id]["reason"]
-    location = "คลังห้องเย็น" if user_session[user_id]["location"] == "cold_storage" else "โนนิโกะ"
+    """ ตรวจสอบข้อมูลก่อนบันทึกลง MongoDB และส่งสรุปคำขอ """
+
+    # ตรวจสอบว่าข้อมูลครบถ้วนหรือไม่
+    amount = user_session[user_id].get("amount")
+    reason = user_session[user_id].get("reason")
+    location = user_session[user_id].get("location")
+    license_plate = user_session[user_id].get("license_plate") if reason == "fuel" else None
+
+    if not amount or not reason or not location or (reason == "fuel" and not license_plate):
+        reset_state(user_id)
+        line_bot_api.push_message(user_id, TextSendMessage(text="⚠️ ข้อมูลไม่ครบ กรุณากรอกข้อมูลใหม่ตั้งแต่ต้น"))
+        return
+
+    request_id = generate_request_id()
+    user_session[user_id]["request_id"] = request_id
+
+    location_text = "คลังห้องเย็น" if location == "cold_storage" else "โนนิโกะ"
+
+    request_data = {
+        "request_id": request_id,
+        "user_id": user_id,
+        "amount": amount,
+        "reason": reason,
+        "license_plate": license_plate,
+        "location": location_text,
+        "status": "pending"
+    }
+    requests_collection.insert_one(request_data)
 
     summary_text = (
         f"✅ คำขอเบิกเงินถูกบันทึกและรอการอนุมัติ\n"
+        f"📌 หมายเลขคำขอ: {request_id}\n"
         f"💰 จำนวนเงิน: {amount} บาท\n"
         f"📌 เหตุผล: {reason}\n"
-        f"📍 สถานที่รับเงิน: {location}\n"
+        f"🚗 หมายเลขทะเบียน: {license_plate if license_plate else '-'}\n"
+        f"📍 สถานที่รับเงิน: {location_text}\n"
         f"🔄 กรุณารอการอนุมัติจากผู้ดูแล"
     )
 
     line_bot_api.push_message(user_id, TextSendMessage(text=summary_text))
+    reset_state(user_id)
