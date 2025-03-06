@@ -1,4 +1,6 @@
 import uuid
+import logging
+import requests
 from pymongo import MongoClient
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction
@@ -35,7 +37,10 @@ def handle_user_request(event, line_bot_api):
         alt_text="กรุณาเลือกเมนู",
         template=ButtonsTemplate(
             text="📌 กรุณาเลือกเมนูที่ต้องการ",
-            actions=[PostbackAction(label="เบิกเงินสด", data=f"menu_withdraw_cash|{user_id}")]
+            actions=[
+                PostbackAction(label="เบิกเงินสด", data=f"menu_withdraw_cash|{user_id}"),
+                PostbackAction(label="ฝากเงินสด", data=f"deposit_cash|{user_id}")
+                ]
         )
     )
     line_bot_api.reply_message(event.reply_token, reply_message)
@@ -68,6 +73,20 @@ def send_reason_menu(user_id):
         )
     )
 
+def send_reason_deposit_menu(user_id):
+    """ ส่งเมนูให้เลือกเหตุผลในการเบิกเงิน """
+    return TemplateSendMessage(
+        alt_text="เลือกเหตุผลในการฝากเงิน",
+        template=ButtonsTemplate(
+            text="📌 กรุณาเลือกเหตุผลในการฝากเงิน",
+            actions=[
+                PostbackAction(label="เงินทอน", data=f"select_reason_deposit|change|{user_id}"),
+                PostbackAction(label="ฝากยอดขาย", data=f"select_reason_deposit|daily_sales|{user_id}"),
+                PostbackAction(label="อื่นๆ", data=f"select_reason_deposit|other|{user_id}")
+            ]
+        )
+    )
+
 def handle_postback(event, line_bot_api):
     """ จัดการปุ่มกด """
     data = event.postback.data.split("|")
@@ -93,6 +112,20 @@ def handle_postback(event, line_bot_api):
                 ]
             )
         )
+
+    elif action == "deposit_cash":
+        user_session[user_id]["state"] = "waiting_for_deposit_amount"
+        reply_message = TextSendMessage(text="📌 กรุณาพิมพ์จำนวนเงินที่ต้องการฝาก (ตัวเลขเท่านั้น)")
+
+    elif action == "select_reason_deposit":
+        reason = data[1]
+        user_session[user_id]["reason"] = reason
+        if reason == "":
+            user_session[user_id]["state"] = "waiting_for_license_plate"
+            reply_message = TextSendMessage(text="📌 กรุณาระบุเหตุผลที่ฝากเงิน")
+        else:
+            reply_message = send_location_menu(user_id)
+
 
     elif action == "select_amount":
         amount = data[1]
@@ -122,9 +155,32 @@ def handle_postback(event, line_bot_api):
             reply_message = send_location_menu(user_id)
 
     elif action == "select_location":
-        user_session[user_id]["location"] = data[1]
-        send_summary(user_id, line_bot_api)
-        return  # ไม่ reset state ที่นี่ เพราะต้องให้ตรวจสอบข้อมูลก่อน
+        location = user_session[user_id]["location"] = data[1]
+        amount = user_session[user_id]["amount"]
+        reson = user_session[user_id]["reason"]
+        if user_session[user_id]["state"] == "choosing_reason_deposit" and location == "noniko":
+            text = (
+                f"✅ คำขอฝากเงิน\n"
+                f"💰 จำนวนเงิน: {amount} บาท\n"
+                f"📌 เหตุผล: {reson}\n"
+                f"📍 สถานที่รับเงิน: {location}\n"
+                f"🔄 ฝากเงินทอนสำเร็จแล้ว"
+            )
+            api_url = "http://10.0.0.14:5050/api/deposit"
+            payload = {
+                "amount": int(amount),  # ✅ แปลงเป็น int
+                "machine_id": "line_bot_audit_kf",
+                "branch_id": "NONIKO"
+            }
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            reply_message = TextSendMessage(text=text)
+        else: 
+            send_summary(user_id, line_bot_api)
+            return  # ไม่ reset state ที่นี่ เพราะต้องให้ตรวจสอบข้อมูลก่อน
 
     if reply_message:
         line_bot_api.reply_message(event.reply_token, reply_message)
@@ -149,6 +205,14 @@ def handle_text_input(event, line_bot_api):
             user_session[user_id]["amount"] = text
             user_session[user_id]["state"] = "choosing_reason"
             reply_message = send_reason_menu(user_id)
+        else:
+            reply_message = TextSendMessage(text="⚠️ กรุณากรอกจำนวนเงินเป็นตัวเลขเท่านั้น")
+
+    elif current_state == "waiting_for_deposit_amount":
+        if text.isdigit():
+            user_session[user_id]["amount"] = text
+            user_session[user_id]["state"] = "choosing_reason_deposit"
+            reply_message = send_reason_deposit_menu(user_id)
         else:
             reply_message = TextSendMessage(text="⚠️ กรุณากรอกจำนวนเงินเป็นตัวเลขเท่านั้น")
 
