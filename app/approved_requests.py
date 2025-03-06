@@ -12,13 +12,13 @@ logger = logging.getLogger(__name__)  # ✅ แก้ไขให้ประก
 # สร้าง Blueprint สำหรับ Web UI อนุมัติ
 approved_requests_bp = Blueprint("approved_requests", __name__, template_folder="templates")
 
-@approved_requests_bp.route("/approved-requests", methods=["GET"])
+@approved_requests_bp.route("/money/approved-requests", methods=["GET"])
 def get_approved_requests():
     """ แสดงรายการที่รออนุมัติ """
     pending_requests = list(requests_collection.find({"status": "pending"}, {"_id": 0}))
     return render_template("approved_requests.html", requests=pending_requests)
 
-@approved_requests_bp.route("/request-status", methods=["GET"])
+@approved_requests_bp.route("/money/request-status", methods=["GET"])
 def request_status():
     """ แสดงรายการคำขอที่อนุมัติและปฏิเสธแล้ว """
     approved_requests = list(requests_collection.find({"status": "approved"}, {"_id": 0}))
@@ -31,7 +31,7 @@ def request_status():
     )
 
 
-@approved_requests_bp.route("/approve/<request_id>", methods=["POST"])
+@approved_requests_bp.route("/money/approve/<request_id>", methods=["POST"])
 def approve_request(request_id):
     """ อนุมัติคำขอ และส่ง API ถ้าจำเป็น """
 
@@ -89,7 +89,7 @@ def approve_request(request_id):
             logger.error(f"❌ API Error: {str(e)}")
             return jsonify({"status": "error", "message": f"API Error: {str(e)}"}), 500
 
-@approved_requests_bp.route("/reject/<request_id>", methods=["POST"])
+@approved_requests_bp.route("/money/reject/<request_id>", methods=["POST"])
 def reject_request(request_id):
     """ ปฏิเสธคำขอและอัปเดตสถานะใน MongoDB """
     requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "rejected"}})

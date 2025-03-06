@@ -10,7 +10,7 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/money/webhook", methods=["POST"])
 def webhook():
     signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
