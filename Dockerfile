@@ -11,8 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # คัดลอกโค้ดทั้งหมดไปยัง container
 COPY . .
 
-# เปิดพอร์ต 5001
-EXPOSE 5001
+# เปิดพอร์ต 5010
+EXPOSE 5010
 
 # รัน Flask App
 CMD ["python", "app/main.py"]
