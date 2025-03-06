@@ -83,7 +83,7 @@ def approve_request(request_id):
                 # ✅ อัปเดตสถานะเป็น "approved" ในฐานข้อมูล
                 requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "approved"}})
                 logger.info(f"✅ อนุมัติคำขอ {request_id} สำเร็จ")
-                return redirect("/approved-requests")
+                return redirect("/money/approved-requests")
 
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ API Error: {str(e)}")
