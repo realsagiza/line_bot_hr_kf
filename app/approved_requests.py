@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, jsonify, redirect, url_for
 from db import requests_collection  # ✅ ใช้ connection pool
 
 # สร้าง Blueprint สำหรับ Web UI อนุมัติ
