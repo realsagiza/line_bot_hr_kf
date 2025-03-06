@@ -8,6 +8,10 @@ from linebot.models import (
 from config import Config
 from db import requests_collection  # ✅ ใช้ connection pool
 
+# ✅ ตั้งค่า Logging ให้ใช้งานได้
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)  # ✅ แก้ไขให้ประกาศ logger ที่นี่
+
 # เก็บ state ของผู้ใช้
 user_session = {}
 
@@ -82,7 +86,7 @@ def send_reason_deposit_menu(user_id):
             actions=[
                 PostbackAction(label="เงินทอน", data=f"select_reason_deposit|change|{user_id}"),
                 PostbackAction(label="ฝากยอดขาย", data=f"select_reason_deposit|daily_sales|{user_id}"),
-                PostbackAction(label="อื่นๆ", data=f"select_reason_deposit|other|{user_id}")
+                PostbackAction(label="อื่นๆ", data=f"select_reason_deposit|other_deposit|{user_id}")
             ]
         )
     )
@@ -120,10 +124,11 @@ def handle_postback(event, line_bot_api):
     elif action == "select_reason_deposit":
         reason = data[1]
         user_session[user_id]["reason"] = reason
-        if reason == "":
-            user_session[user_id]["state"] = "waiting_for_license_plate"
+        if reason == "other_deposit":
+            user_session[user_id]["state"] = "waiting_for_location_deposit"
             reply_message = TextSendMessage(text="📌 กรุณาระบุเหตุผลที่ฝากเงิน")
         else:
+            user_session[user_id]["state"] = "waiting_for_location_deposit"
             reply_message = send_location_menu(user_id)
 
 
@@ -158,7 +163,9 @@ def handle_postback(event, line_bot_api):
         location = user_session[user_id]["location"] = data[1]
         amount = user_session[user_id]["amount"]
         reson = user_session[user_id]["reason"]
-        if user_session[user_id]["state"] == "choosing_reason_deposit" and location == "noniko":
+        state = user_session[user_id]["state"]
+        logger.info(f"❌ สถานะ {state} ตอนนี้")
+        if  state == "waiting_for_location_deposit" and location == "noniko":
             text = (
                 f"✅ คำขอฝากเงิน\n"
                 f"💰 จำนวนเงิน: {amount} บาท\n"
@@ -177,8 +184,9 @@ def handle_postback(event, line_bot_api):
             }
 
             response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            reset_state(user_id)
             reply_message = TextSendMessage(text=text)
-        else: 
+        elif state == "waiting_for_location": 
             send_summary(user_id, line_bot_api)
             return  # ไม่ reset state ที่นี่ เพราะต้องให้ตรวจสอบข้อมูลก่อน
 
@@ -189,6 +197,7 @@ def handle_text_input(event, line_bot_api):
     """ จัดการข้อความที่ผู้ใช้พิมพ์ """
     user_id = event.source.user_id
     text = event.message.text.strip()
+    reply_message = None
 
     if user_id not in user_session:
         reset_state(user_id)
@@ -231,8 +240,15 @@ def handle_text_input(event, line_bot_api):
             reply_message = send_location_menu(user_id)
         else:
             reply_message = TextSendMessage(text="⚠️ กรุณากรอกเหตุผลให้ครบถ้วน")
-
-    line_bot_api.reply_message(event.reply_token, reply_message)
+    elif current_state == "waiting_for_location_deposit":
+        if len(text.strip()) > 0:
+            user_session[user_id]["reason"] = text
+            user_session[user_id]["state"] = "waiting_for_location_deposit"
+            reply_message = send_location_menu(user_id)
+        else:
+            reply_message = TextSendMessage(text="⚠️ กรุณากรอกเหตุผลให้ครบถ้วน")
+    if reply_message:
+        line_bot_api.reply_message(event.reply_token, reply_message)
 
 def send_summary(user_id, line_bot_api):
     """ ตรวจสอบข้อมูลก่อนบันทึกลง MongoDB และส่งสรุปคำขอ """
@@ -273,6 +289,5 @@ def send_summary(user_id, line_bot_api):
         f"📍 สถานที่รับเงิน: {location_text}\n"
         f"🔄 กรุณารอการอนุมัติจากผู้ดูแล"
     )
-
-    line_bot_api.push_message(user_id, TextSendMessage(text=summary_text))
     reset_state(user_id)
+    line_bot_api.push_message(user_id, TextSendMessage(text=summary_text))
