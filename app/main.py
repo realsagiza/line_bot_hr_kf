@@ -3,7 +3,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, PostbackEvent
 from config import Config
-from handlers import handle_user_request, handle_postback
+from handlers import handle_user_request, handle_postback, handle_text_input  # ✅ เพิ่ม handle_text_input ที่หายไป
 
 app = Flask(__name__)
 
@@ -24,7 +24,7 @@ def webhook():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    handle_user_request(event, line_bot_api)
+    handle_text_input(event, line_bot_api)  # ✅ ตอนนี้ฟังก์ชันนี้ถูก import แล้ว
 
 @handler.add(PostbackEvent)
 def handle_postback_event(event):
