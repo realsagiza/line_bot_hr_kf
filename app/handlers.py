@@ -2,7 +2,6 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction
 )
 from config import Config
-import json
 
 # เก็บ state ของผู้ใช้
 user_session = {}
@@ -23,21 +22,13 @@ def handle_user_request(event, line_bot_api):
     if user_id not in user_session:
         reset_state(user_id)
 
-    current_state = user_session[user_id]["state"]
-    print(f"[DEBUG] User {user_id} in state: {current_state}")
-
-    if current_state == "choosing_action":
-        reply_message = TemplateSendMessage(
-            alt_text="กรุณาเลือกเมนู",
-            template=ButtonsTemplate(
-                text="📌 กรุณาเลือกเมนูที่ต้องการ",
-                actions=[PostbackAction(label="เบิกเงินสด", data=f"menu_withdraw_cash|{user_id}")]
-            )
+    reply_message = TemplateSendMessage(
+        alt_text="กรุณาเลือกเมนู",
+        template=ButtonsTemplate(
+            text="📌 กรุณาเลือกเมนูที่ต้องการ",
+            actions=[PostbackAction(label="เบิกเงินสด", data=f"menu_withdraw_cash|{user_id}")]
         )
-
-    else:
-        reply_message = TextSendMessage(text="⚠️ กรุณาทำตามขั้นตอนให้ครบ")
-
+    )
     line_bot_api.reply_message(event.reply_token, reply_message)
 
 def handle_postback(event, line_bot_api):
@@ -48,9 +39,6 @@ def handle_postback(event, line_bot_api):
 
     if user_id not in user_session:
         reset_state(user_id)
-
-    current_state = user_session[user_id]["state"]
-    print(f"[DEBUG] User {user_id} in state: {current_state}")
 
     reply_message = None
 
@@ -75,9 +63,13 @@ def handle_postback(event, line_bot_api):
             user_session[user_id]["state"] = "waiting_for_amount"
             reply_message = TextSendMessage(text="📌 กรุณาพิมพ์จำนวนเงินที่ต้องการเบิก (ตัวเลขเท่านั้น)")
         else:
-            user_session[user_id]["amount"] = amount
-            user_session[user_id]["state"] = "choosing_reason"
-            send_reason_menu(event.reply_token, user_id, line_bot_api)
+            # ตรวจสอบว่าจำนวนเงินที่เลือกเป็นตัวเลขหรือไม่
+            if not amount.isdigit():
+                reply_message = TextSendMessage(text="⚠️ กรุณาเลือกจำนวนเงินให้ถูกต้อง")
+            else:
+                user_session[user_id]["amount"] = amount
+                user_session[user_id]["state"] = "choosing_reason"
+                reply_message = send_reason_menu(user_id)
 
     elif action == "select_reason":
         reason = data[1]
@@ -87,18 +79,16 @@ def handle_postback(event, line_bot_api):
         else:
             user_session[user_id]["reason"] = reason
             user_session[user_id]["state"] = "waiting_for_location"
-            send_location_menu(event.reply_token, user_id, line_bot_api)
+            reply_message = send_location_menu(user_id)
 
     elif action == "select_location":
-        location = data[1]
-        user_session[user_id]["location"] = location
-        send_summary(event.reply_token, user_id, line_bot_api)
+        user_session[user_id]["location"] = data[1]
+        send_summary(user_id, line_bot_api)
         reset_state(user_id)
+        return
 
-    else:
-        reply_message = TextSendMessage(text="⚠️ กรุณาทำตามขั้นตอนให้ครบ")
-
-    line_bot_api.reply_message(event.reply_token, reply_message)
+    if reply_message:
+        line_bot_api.reply_message(event.reply_token, reply_message)
 
 def handle_text_input(event, line_bot_api):
     """ จัดการข้อความที่ผู้ใช้พิมพ์ """
@@ -114,27 +104,33 @@ def handle_text_input(event, line_bot_api):
         return
 
     current_state = user_session[user_id]["state"]
-    print(f"[DEBUG] User {user_id} in state: {current_state}")
 
     if current_state == "waiting_for_amount" and text.isdigit():
         user_session[user_id]["amount"] = text
         user_session[user_id]["state"] = "choosing_reason"
-        send_reason_menu(event.reply_token, user_id, line_bot_api)
-        return
+        reply_message = send_reason_menu(user_id)
+
+    elif current_state == "waiting_for_amount":
+        if text.isdigit():  # ตรวจสอบว่าพิมพ์เป็นตัวเลข
+            user_session[user_id]["amount"] = text
+            user_session[user_id]["state"] = "choosing_reason"
+            reply_message = send_reason_menu(user_id)
+        else:
+            reply_message = TextSendMessage(text="⚠️ กรุณากรอกจำนวนเงินเป็นตัวเลขเท่านั้น")
 
     elif current_state == "waiting_for_other_reason":
-        user_session[user_id]["reason"] = text
-        user_session[user_id]["state"] = "waiting_for_location"
-        send_location_menu(event.reply_token, user_id, line_bot_api)
-        return
+        if len(text.strip()) > 0:  # ตรวจสอบว่าผู้ใช้พิมพ์เหตุผลที่สมเหตุสมผล
+            user_session[user_id]["reason"] = text
+            user_session[user_id]["state"] = "waiting_for_location"
+            reply_message = send_location_menu(user_id)
+        else:
+            reply_message = TextSendMessage(text="⚠️ กรุณากรอกเหตุผลให้ครบถ้วน")
 
-    else:
-        reply_message = TextSendMessage(text="⚠️ กรุณาทำตามขั้นตอนให้ครบ")
-        line_bot_api.reply_message(event.reply_token, reply_message)
+    line_bot_api.reply_message(event.reply_token, reply_message)
 
-def send_reason_menu(reply_token, user_id, line_bot_api):
+def send_reason_menu(user_id):
     """ ส่งเมนูให้เลือกเหตุผลในการเบิกเงิน """
-    message = TemplateSendMessage(
+    return TemplateSendMessage(
         alt_text="เลือกเหตุผลในการเบิกเงิน",
         template=ButtonsTemplate(
             text="📌 กรุณาเลือกเหตุผลในการเบิกเงิน",
@@ -145,11 +141,10 @@ def send_reason_menu(reply_token, user_id, line_bot_api):
             ]
         )
     )
-    line_bot_api.reply_message(reply_token, message)
 
-def send_location_menu(reply_token, user_id, line_bot_api):
+def send_location_menu(user_id):
     """ ส่งเมนูให้เลือกสถานที่รับเงิน """
-    message = TemplateSendMessage(
+    return TemplateSendMessage(
         alt_text="เลือกสถานที่รับเงิน",
         template=ButtonsTemplate(
             text="📌 กรุณาเลือกสถานที่รับเงิน",
@@ -159,21 +154,19 @@ def send_location_menu(reply_token, user_id, line_bot_api):
             ]
         )
     )
-    line_bot_api.reply_message(reply_token, message)
 
-def send_summary(reply_token, user_id, line_bot_api):
+def send_summary(user_id, line_bot_api):
     """ ส่งสรุปคำขอและแจ้งรออนุมัติ """
     amount = user_session[user_id]["amount"]
     reason = user_session[user_id]["reason"]
-    location = user_session[user_id]["location"]
-    location_text = "คลังห้องเย็น" if location == "cold_storage" else "โนนิโกะ"
+    location = "คลังห้องเย็น" if user_session[user_id]["location"] == "cold_storage" else "โนนิโกะ"
 
     summary_text = (
         f"✅ คำขอเบิกเงินถูกบันทึกและรอการอนุมัติ\n"
         f"💰 จำนวนเงิน: {amount} บาท\n"
         f"📌 เหตุผล: {reason}\n"
-        f"📍 สถานที่รับเงิน: {location_text}\n"
+        f"📍 สถานที่รับเงิน: {location}\n"
         f"🔄 กรุณารอการอนุมัติจากผู้ดูแล"
     )
 
-    line_bot_api.reply_message(reply_token, TextSendMessage(text=summary_text))
+    line_bot_api.push_message(user_id, TextSendMessage(text=summary_text))
