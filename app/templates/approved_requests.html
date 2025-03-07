@@ -1,48 +1,63 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>รายการรออนุมัติ</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; }
-        table { width: 80%; margin: auto; border-collapse: collapse; }
-        th, td { padding: 10px; border: 1px solid black; }
-        th { background-color: #4CAF50; color: white; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
-        .btn { padding: 5px 10px; border: none; cursor: pointer; }
-        .approve { background-color: green; color: white; }
-        .reject { background-color: red; color: white; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>รายการรออนุมัติ</title>
+  <style>
+      body { font-family: Arial, sans-serif; text-align: center; }
+      table { width: 80%; margin: auto; border-collapse: collapse; }
+      th, td { padding: 10px; border: 1px solid black; }
+      th { background-color: #4CAF50; color: white; }
+      tr:nth-child(even) { background-color: #f2f2f2; }
+      .btn { padding: 5px 10px; border: none; cursor: pointer; }
+      .approve { background-color: green; color: white; }
+      .reject { background-color: red; color: white; }
+  </style>
+  
+  <!-- เพิ่ม LIFF SDK -->
+  <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
+  <script>
+    window.onload = function() {
+      liff.init({ liffId: "YOUR_LIFF_ID" })
+        .then(() => {
+          // โค้ดหลัง LIFF ถูก initialize แล้ว
+          console.log("LIFF initialized");
+        })
+        .catch(err => {
+          console.error("LIFF initialization failed", err);
+        });
+    };
+  </script>
 </head>
 <body>
-    <h2>📋 รายการรออนุมัติ</h2>
-    <table>
-        <tr>
-            <th>หมายเลขคำขอ</th>
-            <th>จำนวนเงิน</th>
-            <th>เหตุผล</th>
-            <th>สถานที่รับเงิน</th>
-            <th>สถานะ</th>
-            <th>การดำเนินการ</th>
-        </tr>
-        {% for request in requests %}
-        <tr>
-            <td>{{ request.request_id }}</td>
-            <td>{{ request.amount }} บาท</td>
-            <td>{{ request.reason }}</td>
-            <td>{{ request.location }}</td>
-            <td>{{ request.status }}</td>
-            <td>
-                <form action="{{ url_for('approved_requests.approve_request', request_id=request.request_id) }}" method="post">
-                    <button type="submit" class="btn approve">✅ อนุมัติ</button>
-                </form>
-                <form action="{{ url_for('approved_requests.reject_request', request_id=request.request_id) }}" method="post">
-                    <button type="submit" class="btn reject">❌ ปฏิเสธ</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
+  <h2>📋 รายการรออนุมัติ</h2>
+  <table>
+      <tr>
+          <th>หมายเลขคำขอ</th>
+          <th>จำนวนเงิน</th>
+          <th>เหตุผล</th>
+          <th>สถานที่รับเงิน</th>
+          <th>สถานะ</th>
+          <th>การดำเนินการ</th>
+      </tr>
+      {% for request in requests %}
+      <tr>
+          <td>{{ request.request_id }}</td>
+          <td>{{ request.amount }} บาท</td>
+          <td>{{ request.reason }}</td>
+          <td>{{ request.location }}</td>
+          <td>{{ request.status }}</td>
+          <td>
+              <form action="{{ url_for('approved_requests.approve_request', request_id=request.request_id) }}" method="post">
+                  <button type="submit" class="btn approve">✅ อนุมัติ</button>
+              </form>
+              <form action="{{ url_for('approved_requests.reject_request', request_id=request.request_id) }}" method="post">
+                  <button type="submit" class="btn reject">❌ ปฏิเสธ</button>
+              </form>
+          </td>
+      </tr>
+      {% endfor %}
+  </table>
 </body>
 </html>
