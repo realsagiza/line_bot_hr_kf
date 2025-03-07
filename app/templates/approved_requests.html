@@ -37,6 +37,11 @@
           // ตรวจสอบว่า userId นี้อยู่ในรายการอนุญาตหรือไม่
           if (!allowedUserIds.includes(profile.userId)) {
             document.getElementById('content').classList.add('hidden');
+            document.getElementById('no-access').innerHTML = `
+              <h2>คุณไม่มีสิทธิ์เข้าถึงแอพนี้</h2>
+              <p>User ID ของคุณ: ${profile.userId}</p>
+              <p>กรุณาติดต่อผู้ดูแลระบบหากคุณเชื่อว่ามีความผิดพลาด</p>
+            `;
             document.getElementById('no-access').classList.remove('hidden');
           } else {
             // ถ้า userId อยู่ในรายการอนุญาต ก็แสดงเนื้อหาได้ตามปกติ
@@ -85,8 +90,7 @@
 
   <!-- ส่วนแจ้งเตือนเมื่อไม่มีสิทธิ์เข้าถึง -->
   <div id="no-access" class="hidden">
-    <h2>คุณไม่มีสิทธิ์เข้าถึงแอพนี้</h2>
-    <p>กรุณาติดต่อผู้ดูแลระบบหากคุณเชื่อว่ามีความผิดพลาด</p>
+    <!-- เนื้อหานี้จะถูกแทนที่ด้วย JavaScript เมื่อผู้ใช้ไม่มีสิทธิ์เข้าถึง -->
   </div>
 </body>
 </html>
