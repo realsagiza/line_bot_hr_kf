@@ -13,16 +13,36 @@
       .btn { padding: 5px 10px; border: none; cursor: pointer; }
       .approve { background-color: green; color: white; }
       .reject { background-color: red; color: white; }
+      .hidden { display: none; }
   </style>
   
-  <!-- เพิ่ม LIFF SDK -->
+  <!-- โหลด LIFF SDK -->
   <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
   <script>
+    // รายการ userId ที่ได้รับอนุญาต
+    const allowedUserIds = [
+      "USERID_1"
+      // เพิ่มหรือแก้ไขตามที่ต้องการ
+    ];
+
     window.onload = function() {
       liff.init({ liffId: "YOUR_LIFF_ID" })
         .then(() => {
-          // โค้ดหลัง LIFF ถูก initialize แล้ว
           console.log("LIFF initialized");
+          // เรียกดูข้อมูลโปรไฟล์ผู้ใช้
+          return liff.getProfile();
+        })
+        .then(profile => {
+          console.log("User ID:", profile.userId);
+          // ตรวจสอบว่า userId นี้อยู่ในรายการอนุญาตหรือไม่
+          if (!allowedUserIds.includes(profile.userId)) {
+            document.getElementById('content').classList.add('hidden');
+            document.getElementById('no-access').classList.remove('hidden');
+          } else {
+            // ถ้า userId อยู่ในรายการอนุญาต ก็แสดงเนื้อหาได้ตามปกติ
+            document.getElementById('content').classList.remove('hidden');
+            document.getElementById('no-access').classList.add('hidden');
+          }
         })
         .catch(err => {
           console.error("LIFF initialization failed", err);
@@ -31,8 +51,10 @@
   </script>
 </head>
 <body>
-  <h2>📋 รายการรออนุมัติ</h2>
-  <table>
+  <!-- ส่วนที่จะแสดงเฉพาะผู้ที่ได้รับอนุญาต -->
+  <div id="content" class="hidden">
+    <h2>📋 รายการรออนุมัติ</h2>
+    <table>
       <tr>
           <th>หมายเลขคำขอ</th>
           <th>จำนวนเงิน</th>
@@ -58,6 +80,13 @@
           </td>
       </tr>
       {% endfor %}
-  </table>
+    </table>
+  </div>
+
+  <!-- ส่วนแจ้งเตือนเมื่อไม่มีสิทธิ์เข้าถึง -->
+  <div id="no-access" class="hidden">
+    <h2>คุณไม่มีสิทธิ์เข้าถึงแอพนี้</h2>
+    <p>กรุณาติดต่อผู้ดูแลระบบหากคุณเชื่อว่ามีความผิดพลาด</p>
+  </div>
 </body>
 </html>

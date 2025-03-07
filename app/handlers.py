@@ -206,6 +206,9 @@ def handle_text_input(event, line_bot_api):
         reset_state(user_id)
         handle_user_request(event, line_bot_api)
         return
+    elif text.lower() == "ขอไอดี":
+        reset_state(user_id)
+        reply_message = TextSendMessage(text=f"⚠️ {user_id}")
 
     current_state = user_session[user_id]["state"]
 
