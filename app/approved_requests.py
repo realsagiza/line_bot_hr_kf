@@ -88,6 +88,41 @@ def approve_request(request_id):
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ API Error: {str(e)}")
             return jsonify({"status": "error", "message": f"API Error: {str(e)}"}), 500
+    elif location == "คลังห้องเย็น":
+        api_url = "http://10.0.0.15:5050/api/withdraw"
+        payload = {
+            "amount": int(amount),  # ✅ แปลงเป็น int
+            "machine_id": "line_bot_audit_kf",
+            "branch_id": "Klanfrozen"
+        }
+        headers = {
+            "Content-Type": "application/json"
+        }
+
+        logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
+
+        try:
+            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+
+            # ✅ Log response status และ body
+            logger.info(f"📤 API Response Status: {response.status_code}")
+            logger.info(f"📤 API Response Body: {response.text}")
+
+            response.raise_for_status()  # ถ้า HTTP Status ไม่ใช่ 200 จะเกิด Exception
+
+            response_data = response.json()
+            if response_data.get("transaction_status") != "success":
+                logger.error(f"❌ API ตอบกลับผิดพลาด: {response_data}")
+                return jsonify({"status": "error", "message": f"API ตอบกลับผิดพลาด: {response_data}"}), 500
+            else:
+                # ✅ อัปเดตสถานะเป็น "approved" ในฐานข้อมูล
+                requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "approved"}})
+                logger.info(f"✅ อนุมัติคำขอ {request_id} สำเร็จ")
+                return redirect("/money/approved-requests")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ API Error: {str(e)}")
+            return jsonify({"status": "error", "message": f"API Error: {str(e)}"}), 500
 
 @approved_requests_bp.route("/money/reject/<request_id>", methods=["POST"])
 def reject_request(request_id):
