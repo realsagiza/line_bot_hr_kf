@@ -186,6 +186,27 @@ def handle_postback(event, line_bot_api):
             response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
             reset_state(user_id)
             reply_message = TextSendMessage(text=text)
+        elif  state == "waiting_for_location_deposit" and location == "cold_storage":
+            text = (
+                f"✅ คำขอฝากเงิน\n"
+                f"💰 จำนวนเงิน: {amount} บาท\n"
+                f"📌 เหตุผล: {reson}\n"
+                f"📍 สถานที่รับเงิน: {location}\n"
+                f"🔄 ฝากเงินทอนสำเร็จแล้ว"
+            )
+            api_url = "http://10.0.0.15:5050/api/deposit"
+            payload = {
+                "amount": int(amount),  # ✅ แปลงเป็น int
+                "machine_id": "line_bot_audit_kf",
+                "branch_id": "Klangfrozen"
+            }
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            reset_state(user_id)
+            reply_message = TextSendMessage(text=text)
         elif state == "waiting_for_location": 
             send_summary(user_id, line_bot_api)
             return  # ไม่ reset state ที่นี่ เพราะต้องให้ตรวจสอบข้อมูลก่อน
