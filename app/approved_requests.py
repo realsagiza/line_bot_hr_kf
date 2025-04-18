@@ -86,6 +86,7 @@ def approve_request(request_id):
                 requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "approved"}})
                 
                 # ✅ บันทึกข้อมูลธุรกรรมใน transactions collection
+                current_date = datetime.datetime.now().strftime("%Y-%m-%d")  # ✅ แปลงเป็น string ในรูปแบบ YYYY-MM-DD
                 transaction_data = {
                     "name": reason,
                     "amount": int(amount),
@@ -93,7 +94,7 @@ def approve_request(request_id):
                     "tags": [],
                     "type": "expense",
                     "selectedStorage": location,
-                    "selectedDate": datetime.datetime.now()
+                    "selectedDate": current_date
                 }
                 
                 # บันทึกข้อมูลลงฐานข้อมูล
@@ -137,6 +138,7 @@ def approve_request(request_id):
                 requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "approved"}})
                 
                 # ✅ บันทึกข้อมูลธุรกรรมใน transactions collection
+                current_date = datetime.datetime.now().strftime("%Y-%m-%d")  # ✅ แปลงเป็น string ในรูปแบบ YYYY-MM-DD
                 transaction_data = {
                     "name": reason,
                     "amount": int(amount),
@@ -144,7 +146,7 @@ def approve_request(request_id):
                     "tags": [],
                     "type": "expense",
                     "selectedStorage": location,
-                    "selectedDate": datetime.datetime.now()
+                    "selectedDate": current_date
                 }
                 
                 # บันทึกข้อมูลลงฐานข้อมูล
