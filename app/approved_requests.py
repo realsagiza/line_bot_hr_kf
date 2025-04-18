@@ -3,7 +3,8 @@ import logging
 import json
 import requests
 from flask import Blueprint, render_template, jsonify, redirect, url_for
-from db import requests_collection  # ✅ ใช้ connection pool
+from db import requests_collection, transactions_collection  # ✅ Import transactions_collection
+import datetime  # ✅ Import datetime for current date
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -47,6 +48,7 @@ def approve_request(request_id):
     # ✅ ดึงค่าจำนวนเงิน และสถานที่
     amount = request_data.get("amount")
     location = request_data.get("location")
+    reason = request_data.get("reason", "")  # ✅ ดึงข้อมูลเหตุผลจากคำขอ
 
     if not amount or not location:
         logger.error("❌ ข้อมูลคำขอไม่สมบูรณ์")
@@ -82,6 +84,22 @@ def approve_request(request_id):
             else:
                 # ✅ อัปเดตสถานะเป็น "approved" ในฐานข้อมูล
                 requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "approved"}})
+                
+                # ✅ บันทึกข้อมูลธุรกรรมใน transactions collection
+                transaction_data = {
+                    "name": reason,
+                    "amount": int(amount),
+                    "receiptAttached": False,
+                    "tags": [],
+                    "type": "expense",
+                    "selectedStorage": location,
+                    "selectedDate": datetime.datetime.now()
+                }
+                
+                # บันทึกข้อมูลลงฐานข้อมูล
+                transaction_result = transactions_collection.insert_one(transaction_data)
+                logger.info(f"✅ บันทึกข้อมูลธุรกรรม ID: {transaction_result.inserted_id} สำเร็จ")
+                
                 logger.info(f"✅ อนุมัติคำขอ {request_id} สำเร็จ")
                 return redirect("/money/approved-requests")
 
@@ -117,6 +135,22 @@ def approve_request(request_id):
             else:
                 # ✅ อัปเดตสถานะเป็น "approved" ในฐานข้อมูล
                 requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "approved"}})
+                
+                # ✅ บันทึกข้อมูลธุรกรรมใน transactions collection
+                transaction_data = {
+                    "name": reason,
+                    "amount": int(amount),
+                    "receiptAttached": False,
+                    "tags": [],
+                    "type": "expense",
+                    "selectedStorage": location,
+                    "selectedDate": datetime.datetime.now()
+                }
+                
+                # บันทึกข้อมูลลงฐานข้อมูล
+                transaction_result = transactions_collection.insert_one(transaction_data)
+                logger.info(f"✅ บันทึกข้อมูลธุรกรรม ID: {transaction_result.inserted_id} สำเร็จ")
+                
                 logger.info(f"✅ อนุมัติคำขอ {request_id} สำเร็จ")
                 return redirect("/money/approved-requests")
 
@@ -128,4 +162,4 @@ def approve_request(request_id):
 def reject_request(request_id):
     """ ปฏิเสธคำขอและอัปเดตสถานะใน MongoDB """
     requests_collection.update_one({"request_id": request_id}, {"$set": {"status": "rejected"}})
-    return redirect("/approved-requests")
+    return redirect("/money/approved-requests")
