@@ -33,3 +33,15 @@
 ## อัปเดตล่าสุด
 - เพิ่มการบันทึกข้อมูลธุรกรรมใน collection `transactions` ในฐานข้อมูล MongoDB หลังจากอนุมัติคำขอเบิกเงินสำเร็จ
 - ปรับปรุงการเชื่อมต่อฐานข้อมูล MongoDB ให้ใช้ค่าจาก environment variable
+
+## ข้อกำหนด API ภายนอก
+- Endpoint ฝากเงินต้องส่ง Header ต่อไปนี้เสมอ:
+  - `X-Trace-Id`: ไอดีติดตามรูปแบบ `t-<8 hex>`
+  - `X-Request-Id`: ไอดีคำขอรูปแบบ `r-<8 hex>`
+- ตัวอย่างคำสั่งทดสอบ:
+```bash
+curl -s -X POST -H 'Content-Type: application/json' \
+  -H 'X-Trace-Id: t-9' -H 'X-Request-Id: r-9' \
+  -d '{"amount": 250, "machine_id":"M1", "branch_id":"B1"}' \
+  http://localhost:5050/api/deposit | jq
+```

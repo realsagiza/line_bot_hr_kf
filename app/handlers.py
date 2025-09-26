@@ -179,8 +179,12 @@ def handle_postback(event, line_bot_api):
                 "machine_id": "line_bot_audit_kf",
                 "branch_id": "NONIKO"
             }
+            trace_id = f"t-{uuid.uuid4().hex[:8]}"
+            request_id = f"r-{uuid.uuid4().hex[:8]}"
             headers = {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "X-Trace-Id": trace_id,
+                "X-Request-Id": request_id
             }
 
             response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
@@ -200,8 +204,12 @@ def handle_postback(event, line_bot_api):
                 "machine_id": "line_bot_audit_kf",
                 "branch_id": "Klangfrozen"
             }
+            trace_id = f"t-{uuid.uuid4().hex[:8]}"
+            request_id = f"r-{uuid.uuid4().hex[:8]}"
             headers = {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "X-Trace-Id": trace_id,
+                "X-Request-Id": request_id
             }
 
             response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
