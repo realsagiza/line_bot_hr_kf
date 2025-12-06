@@ -1,3 +1,4 @@
+import uuid
 import requests
 import logging
 import json
@@ -380,3 +381,122 @@ def api_withdraw_request():
     except Exception as e:
         logger.error(f"❌ บันทึกคำขอเบิกเงินผ่าน LIFF ไม่สำเร็จ: {str(e)}")
         return jsonify({"status": "error", "message": "ไม่สามารถบันทึกคำขอได้ กรุณาลองใหม่อีกครั้ง"}), 500
+
+
+@approved_requests_bp.route("/money/api/deposit-request", methods=["POST"])
+def api_deposit_request():
+    """
+    API สำหรับ LIFF ฟอร์มฝากเงินสด
+    รับ JSON:
+    {
+      "userId": "...",
+      "amount": "100",
+      "reason": "change" | "daily_sales" | "other_deposit",
+      "reasonOther": "ข้อความเหตุผลเมื่อเลือก other_deposit",
+      "location": "คลังห้องเย็น" | "โนนิโกะ"
+    }
+
+    ทำงานคล้าย flow เดิมใน handlers: ยิง API ไปที่ตู้ฝากเงิน แล้วตอบกลับผลลัพธ์
+    """
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
+
+    user_id = data.get("userId")
+    amount_raw = data.get("amount")
+    reason_code = data.get("reason")
+    reason_other = (data.get("reasonOther") or "").strip()
+    location_text = (data.get("location") or "").strip()
+
+    if not user_id:
+        return jsonify({"status": "error", "message": "ไม่พบข้อมูลผู้ใช้จาก LIFF"}), 400
+
+    if not amount_raw:
+        return jsonify({"status": "error", "message": "กรุณาระบุจำนวนเงิน"}), 400
+
+    try:
+        amount_int = int(str(amount_raw).strip())
+        if amount_int <= 0:
+            raise ValueError()
+    except ValueError:
+        return jsonify({"status": "error", "message": "จำนวนเงินไม่ถูกต้อง"}), 400
+
+    if reason_code not in ("change", "daily_sales", "other_deposit"):
+        return jsonify({"status": "error", "message": "เหตุผลในการฝากเงินไม่ถูกต้อง"}), 400
+
+    if reason_code == "other_deposit" and not reason_other:
+        return jsonify({"status": "error", "message": "กรุณาระบุเหตุผลเพิ่มเติม"}), 400
+
+    if location_text not in ("คลังห้องเย็น", "โนนิโกะ"):
+        return jsonify({"status": "error", "message": "กรุณาเลือกสาขาที่ฝากเงินให้ถูกต้อง"}), 400
+
+    # แม็ปเหตุผลให้เป็นข้อความอ่านง่าย
+    if reason_code == "change":
+        reason = "เงินทอน"
+    elif reason_code == "daily_sales":
+        reason = "ฝากยอดขาย"
+    elif reason_code == "other_deposit":
+        reason = reason_other
+    else:
+        reason = reason_code
+
+    # กำหนด endpoint และ branch_id ตามสาขา (ตามโค้ดเดิมใน handlers)
+    if location_text == "โนนิโกะ":
+        api_url = "http://10.0.0.14:5050/api/deposit"
+        branch_id = "NONIKO"
+    else:  # คลังห้องเย็น
+        api_url = "http://10.0.0.15:5050/api/deposit"
+        branch_id = "Klangfrozen"
+
+    payload = {
+        "amount": amount_int,
+        "machine_id": "line_bot_audit_kf",
+        "branch_id": branch_id,
+    }
+    trace_id = f"t-{uuid.uuid4().hex[:8]}"
+    request_header_id = f"r-{uuid.uuid4().hex[:8]}"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Trace-Id": trace_id,
+        "X-Request-Id": request_header_id,
+    }
+
+    logger.info(f"📤 [DEPOSIT] ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
+
+    try:
+        response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+        logger.info(f"📤 [DEPOSIT] Response Status: {response.status_code}")
+        logger.info(f"📤 [DEPOSIT] Response Body: {response.text}")
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [DEPOSIT] API Error: {str(e)}")
+        return jsonify({"status": "error", "message": f"API ฝากเงินผิดพลาด: {str(e)}"}), 500
+
+    # บันทึกธุรกรรมฝากเงินลง transactions เพื่อใช้ทำรายงาน
+    now_bkk, now_utc = now_bangkok_and_utc()
+    date_bkk = now_bkk.date().isoformat()
+    transaction_data = {
+        "name": reason,
+        "amount": amount_int,
+        "receiptAttached": False,
+        "tags": [],
+        "type": "income",  # แยกจากเบิกเงินที่เป็น expense
+        "selectedStorage": location_text,
+        "selectedDate": date_bkk,
+        "transaction_at_bkk": now_bkk.isoformat(),
+        "transaction_at_utc": now_utc.isoformat(),
+        "transaction_date_bkk": date_bkk,
+        "direction": "deposit",
+        "channel": "liff",
+        "user_id": user_id,
+    }
+
+    try:
+        result = transactions_collection.insert_one(transaction_data)
+        logger.info(f"✅ [DEPOSIT] บันทึกธุรกรรมฝากเงิน ID: {result.inserted_id} สำเร็จ")
+    except Exception as e:
+        logger.error(f"❌ [DEPOSIT] บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e)}")
+        # ไม่ต้องถือว่าเป็น error ต่อหน้าผู้ใช้ เพราะตัวฝากเงินจริงสำเร็จแล้ว
+
+    return jsonify({"status": "ok"})

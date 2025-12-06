@@ -208,6 +208,10 @@
           <span class="label">ขอเบิกเงินสด</span>
           <span class="desc">กรอกจำนวนเงิน เหตุผล และสถานที่รับเงิน</span>
         </button>
+        <button class="btn-main" onclick="scrollToDepositForm()">
+          <span class="label">ฝากเงินสด</span>
+          <span class="desc">ฝากเงินทอนหรือยอดขายเข้าตู้เงิน</span>
+        </button>
         <button class="btn-main" onclick="openMyStatus()">
           <span class="label">สถานะคำขอของฉัน</span>
           <span class="desc">ดูรายการที่ขอและผลอนุมัติย้อนหลัง</span>
@@ -266,6 +270,43 @@
         <div class="status" id="form-status"></div>
       </form>
     </div>
+
+    <div class="card" id="deposit-card">
+      <div class="section-title" style="margin-top:0;">ฟอร์มฝากเงินสด</div>
+      <form id="deposit-form">
+        <div class="field">
+          <label for="deposit-amount">จำนวนเงิน (บาท)</label>
+          <input type="number" id="deposit-amount" min="1" step="1" required placeholder="เช่น 100, 500">
+        </div>
+
+        <div class="field">
+          <label for="deposit-reason">เหตุผลในการฝากเงิน</label>
+          <select id="deposit-reason" required onchange="onDepositReasonChange()">
+            <option value="">-- เลือกเหตุผล --</option>
+            <option value="change">เงินทอน</option>
+            <option value="daily_sales">ฝากยอดขาย</option>
+            <option value="other_deposit">อื่นๆ</option>
+          </select>
+        </div>
+
+        <div class="field hidden" id="field-deposit-reason-other">
+          <label for="deposit-reason-other">ระบุเหตุผลเพิ่มเติม</label>
+          <textarea id="deposit-reason-other" placeholder="กรณีเลือกเหตุผลอื่นๆ"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="deposit-location">สาขา / สถานที่ฝากเงิน</label>
+          <select id="deposit-location" required>
+            <option value="">-- เลือกสาขา --</option>
+            <option value="คลังห้องเย็น">คลังห้องเย็น</option>
+            <option value="โนนิโกะ">โนนิโกะ</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn-submit">ส่งคำขอฝากเงิน</button>
+        <div class="status" id="deposit-status"></div>
+      </form>
+    </div>
   </div>
 
   <script>
@@ -300,6 +341,10 @@
 
     function scrollToForm() {
       document.getElementById('request-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function scrollToDepositForm() {
+      document.getElementById('deposit-card').scrollIntoView({ behavior: 'smooth' });
     }
 
     function openMyStatus() {
@@ -413,9 +458,93 @@
       }
     }
 
+    function onDepositReasonChange() {
+      const reason = document.getElementById('deposit-reason').value;
+      const fieldOther = document.getElementById('field-deposit-reason-other');
+
+      if (reason === 'other_deposit') {
+        fieldOther.classList.remove('hidden');
+      } else {
+        fieldOther.classList.add('hidden');
+      }
+    }
+
+    async function submitDepositForm(event) {
+      event.preventDefault();
+      const statusEl = document.getElementById('deposit-status');
+      statusEl.textContent = "";
+      statusEl.className = "status";
+
+      if (!currentUserId) {
+        statusEl.textContent = "ไม่พบข้อมูลผู้ใช้จาก LIFF กรุณาลองเปิดใหม่อีกครั้ง";
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      const amount = document.getElementById('deposit-amount').value.trim();
+      const reason = document.getElementById('deposit-reason').value;
+      const reasonOther = document.getElementById('deposit-reason-other').value.trim();
+      const location = document.getElementById('deposit-location').value;
+
+      if (!amount || Number(amount) <= 0) {
+        statusEl.textContent = "กรุณาระบุจำนวนเงินให้ถูกต้อง";
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (!reason) {
+        statusEl.textContent = "กรุณาเลือกเหตุผลในการฝากเงิน";
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (reason === 'other_deposit' && !reasonOther) {
+        statusEl.textContent = "กรุณาระบุเหตุผลเพิ่มเติม";
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (!location) {
+        statusEl.textContent = "กรุณาเลือกสาขาที่ฝากเงิน";
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      const payload = {
+        userId: currentUserId,
+        amount: amount,
+        reason: reason,
+        reasonOther: reasonOther,
+        location: location
+      };
+
+      try {
+        statusEl.textContent = "กำลังส่งคำขอฝากเงิน...";
+        const res = await fetch("/money/api/deposit-request", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.status !== "ok") {
+          throw new Error(data.message || "ไม่สามารถฝากเงินได้");
+        }
+
+        statusEl.textContent = "ฝากเงินสำเร็จแล้ว";
+        statusEl.classList.add('status-ok');
+        document.getElementById('deposit-form').reset();
+        onDepositReasonChange();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || "เกิดข้อผิดพลาดในการฝากเงิน";
+        statusEl.classList.add('status-err');
+      }
+    }
+
     window.addEventListener('load', () => {
       initLiff();
       document.getElementById('withdraw-form').addEventListener('submit', submitWithdrawForm);
+      document.getElementById('deposit-form').addEventListener('submit', submitDepositForm);
     });
   </script>
 </body>
