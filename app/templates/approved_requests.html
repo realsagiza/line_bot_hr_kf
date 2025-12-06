@@ -5,14 +5,157 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>รายการรออนุมัติ</title>
   <style>
-      body { font-family: Arial, sans-serif; text-align: center; }
-      table { width: 80%; margin: auto; border-collapse: collapse; }
-      th, td { padding: 10px; border: 1px solid black; }
-      th { background-color: #4CAF50; color: white; }
-      tr:nth-child(even) { background-color: #f2f2f2; }
-      .btn { padding: 5px 10px; border: none; cursor: pointer; }
-      .approve { background-color: green; color: white; }
-      .reject { background-color: red; color: white; }
+      :root {
+        --primary: #2563eb;
+        --primary-soft: #dbeafe;
+        --approve-bg: #22c55e;
+        --approve-bg-soft: #dcfce7;
+        --reject-bg: #ef4444;
+        --reject-bg-soft: #fee2e2;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top, #e0f2fe 0, #f3f4f6 40%, #e5e7eb 100%);
+        color: #111827;
+      }
+      .app {
+        max-width: 520px;
+        margin: 0 auto;
+        min-height: 100vh;
+        padding: 16px;
+      }
+      .card {
+        background: #ffffff;
+        border-radius: 18px;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+        padding: 18px 18px 20px;
+        margin-bottom: 14px;
+      }
+      .header {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .title {
+        font-size: 18px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .title-badge {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: var(--primary-soft);
+        color: #0369a1;
+        font-weight: 600;
+      }
+      .subtitle {
+        font-size: 12px;
+        color: #4b5563;
+      }
+      .list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .item {
+        border-radius: 16px;
+        border: 1px solid #e5e7eb;
+        background: #f9fafb;
+        padding: 10px 10px 11px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .item-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .item-id {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .pill {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #e5e7eb;
+        color: #374151;
+      }
+      .item-row {
+        font-size: 11px;
+        color: #374151;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .item-row span.value {
+        font-weight: 600;
+        color: #111827;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      .btn {
+        flex: 1 1 0;
+        border-radius: 999px;
+        border: none;
+        padding: 7px 10px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+      }
+      .btn-approve {
+        background: linear-gradient(135deg, var(--approve-bg), #16a34a);
+        color: #f0fdf4;
+        box-shadow: 0 8px 18px rgba(22, 163, 74, 0.4);
+      }
+      .btn-reject {
+        background: linear-gradient(135deg, var(--reject-bg), #b91c1c);
+        color: #fef2f2;
+        box-shadow: 0 8px 18px rgba(248, 113, 113, 0.4);
+      }
+      .btn:active {
+        transform: translateY(1px);
+        box-shadow: 0 5px 12px rgba(15, 23, 42, 0.25);
+      }
+      .empty {
+        font-size: 12px;
+        color: #6b7280;
+        text-align: center;
+        padding: 10px 0;
+      }
+      .footnote {
+        font-size: 11px;
+        color: #6b7280;
+        margin-top: 8px;
+      }
+      .no-access-wrapper {
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 32px 16px;
+        text-align: center;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
       .hidden { display: none; }
   </style>
   
@@ -60,41 +203,72 @@
   </script>
 </head>
 <body>
-  <!-- ส่วนที่จะแสดงเฉพาะผู้ที่ได้รับอนุญาต -->
   <div id="content" class="hidden">
-    <h2>📋 รายการรออนุมัติ</h2>
-    <table>
-      <tr>
-          <th>หมายเลขคำขอ</th>
-          <th>จำนวนเงิน</th>
-          <th>เหตุผล</th>
-          <th>สถานที่รับเงิน</th>
-          <th>สถานะ</th>
-          <th>การดำเนินการ</th>
-      </tr>
-      {% for request in requests %}
-      <tr>
-          <td>{{ request.request_id }}</td>
-          <td>{{ request.amount }} บาท</td>
-          <td>{{ request.reason }}</td>
-          <td>{{ request.location }}</td>
-          <td>{{ request.status }}</td>
-          <td>
-              <form action="{{ url_for('approved_requests.approve_request', request_id=request.request_id) }}" method="post">
-                  <button type="submit" class="btn approve">✅ อนุมัติ</button>
+    <div class="app">
+      <div class="card">
+        <div class="header">
+          <div class="title-row">
+            <div class="title">
+              ✅ อนุมัติคำขอเบิกเงิน
+              <span class="title-badge">สำหรับผู้มีสิทธิ์เท่านั้น</span>
+            </div>
+          </div>
+          <div class="subtitle">
+            แสดงรายการคำขอที่รออนุมัติ เรียงจากรายการล่าสุดก่อน สามารถอนุมัติหรือปฏิเสธได้จากหน้าจอนี้
+          </div>
+        </div>
+        <div class="footnote">
+          เมื่ออนุมัติ ระบบจะเรียกเครื่องเบิกเงินอัตโนมัติ และบันทึกข้อมูลลงฐานข้อมูลตามเวลาไทย (Bangkok +7)
+        </div>
+      </div>
+
+      <div class="card">
+        {% if requests %}
+        <div class="list">
+          {% for request in requests %}
+          <div class="item">
+            <div class="item-header">
+              <div class="item-id">หมายเลขคำขอ: {{ request.request_id }}</div>
+              <span class="pill">{{ request.location }}</span>
+            </div>
+            <div class="item-row">
+              <span>จำนวนเงิน</span>
+              <span class="value">{{ request.amount }} บาท</span>
+            </div>
+            <div class="item-row">
+              <span>เหตุผล</span>
+              <span class="value">{{ request.reason }}</span>
+            </div>
+            <div class="item-row">
+              <span>สถานะปัจจุบัน</span>
+              <span class="value">{{ request.status }}</span>
+            </div>
+            <div class="actions">
+              <form style="flex:1" action="{{ url_for('approved_requests.approve_request', request_id=request.request_id) }}" method="post">
+                <button type="submit" class="btn btn-approve">✅ อนุมัติ</button>
               </form>
-              <form action="{{ url_for('approved_requests.reject_request', request_id=request.request_id) }}" method="post">
-                  <button type="submit" class="btn reject">❌ ปฏิเสธ</button>
+              <form style="flex:1" action="{{ url_for('approved_requests.reject_request', request_id=request.request_id) }}" method="post">
+                <button type="submit" class="btn btn-reject">❌ ปฏิเสธ</button>
               </form>
-          </td>
-      </tr>
-      {% endfor %}
-    </table>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">ยังไม่มีรายการที่รออนุมัติในขณะนี้</div>
+        {% endif %}
+      </div>
+    </div>
   </div>
 
-  <!-- ส่วนแจ้งเตือนเมื่อไม่มีสิทธิ์เข้าถึง -->
   <div id="no-access" class="hidden">
-    <!-- เนื้อหานี้จะถูกแทนที่ด้วย JavaScript เมื่อผู้ใช้ไม่มีสิทธิ์เข้าถึง -->
+    <div class="no-access-wrapper">
+      <h2>คุณไม่มีสิทธิ์เข้าถึงหน้าจอนี้</h2>
+      <p style="font-size:13px;color:#4b5563;">
+        บัญชี LINE นี้ไม่ได้อยู่ในรายชื่อผู้มีสิทธิ์อนุมัติคำขอเบิกเงิน<br>
+        หากคิดว่ามีความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ
+      </p>
+    </div>
   </div>
 </body>
 </html>

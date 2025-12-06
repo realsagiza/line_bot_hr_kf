@@ -26,8 +26,10 @@ def money_liff_home():
 
 @approved_requests_bp.route("/money/approved-requests", methods=["GET"])
 def get_approved_requests():
-    """ แสดงรายการที่รออนุมัติ """
-    pending_requests = list(requests_collection.find({"status": "pending"}, {"_id": 0}))
+    """ แสดงรายการที่รออนุมัติ (เรียงตามวันที่ล่าสุดก่อน) """
+    pending_requests = list(
+        requests_collection.find({"status": "pending"}, {"_id": 0}).sort("created_at_bkk", -1)
+    )
     return render_template("approved_requests.html", requests=pending_requests)
 
 @approved_requests_bp.route("/money/request-status", methods=["GET"])
