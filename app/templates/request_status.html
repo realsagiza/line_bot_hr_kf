@@ -5,80 +5,315 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>สถานะคำขอเบิกเงิน</title>
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            background-color: #f8f9fa; 
-            color: #333;
+        :root {
+            --primary: #2563eb;
+            --primary-soft: #dbeafe;
+            --approved-bg: #ecfdf3;
+            --approved-border: #bbf7d0;
+            --approved-text: #166534;
+            --rejected-bg: #fef2f2;
+            --rejected-border: #fecaca;
+            --rejected-text: #b91c1c;
         }
-        h2 {
-            color: #333;
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top, #e0f2fe 0, #f3f4f6 40%, #e5e7eb 100%);
+            color: #111827;
         }
-        table { 
-            width: 80%; 
-            margin: auto; 
-            border-collapse: collapse; 
-            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-            background-color: white;
+        .app {
+            max-width: 520px;
+            margin: 0 auto;
+            min-height: 100vh;
+            padding: 16px;
         }
-        th, td { 
-            padding: 12px; 
-            border: 1px solid #ddd; 
-            text-align: left; 
+        .card {
+            background: #ffffff;
+            border-radius: 18px;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+            padding: 18px 18px 20px;
+            margin-bottom: 14px;
         }
-        th { 
-            background-color: #007bff; 
-            color: white; 
-            font-weight: bold;
+        .header {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 10px;
         }
-        tr:nth-child(even) { 
-            background-color: #f2f2f2; 
+        .title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
         }
-        .approved { 
-            background-color: #d4edda; 
-            color: #155724; 
+        .title {
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .rejected { 
-            background-color: #f8d7da; 
-            color: #721c24; 
+        .title-badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: var(--primary-soft);
+            color: #0369a1;
+            font-weight: 600;
+        }
+        .subtitle {
+            font-size: 12px;
+            color: #4b5563;
+        }
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .filter-group {
+            flex: 1 1 140px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        label {
+            font-size: 11px;
+            color: #6b7280;
+        }
+        input[type="date"], select {
+            border-radius: 999px;
+            border: 1px solid #e5e7eb;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-family: inherit;
+            background-color: #f9fafb;
+        }
+        .btn-filter {
+            margin-top: 16px;
+            border-radius: 999px;
+            border: none;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--primary), #1d4ed8);
+            color: #ffffff;
+            cursor: pointer;
+            box-shadow: 0 10px 22px rgba(37, 99, 235, 0.35);
+            width: 100%;
+        }
+        .btn-filter:active {
+            transform: translateY(1px);
+            box-shadow: 0 7px 16px rgba(37, 99, 235, 0.3);
+        }
+        .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 10px 0 6px;
+            color: #4b5563;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .pill {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #e5e7eb;
+            color: #374151;
+        }
+        .list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .item {
+            border-radius: 14px;
+            padding: 10px 10px;
+            border: 1px solid #e5e7eb;
+            background: #f9fafb;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .item.approved {
+            background: var(--approved-bg);
+            border-color: var(--approved-border);
+        }
+        .item.rejected {
+            background: var(--rejected-bg);
+            border-color: var(--rejected-border);
+        }
+        .item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+        }
+        .item-id {
+            font-size: 12px;
+            font-weight: 600;
+            color: #111827;
+        }
+        .status-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 600;
+        }
+        .status-badge.approved {
+            background: #22c55e;
+            color: #f0fdf4;
+        }
+        .status-badge.rejected {
+            background: #ef4444;
+            color: #fef2f2;
+        }
+        .item-row {
+            font-size: 11px;
+            color: #374151;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .item-row span.value {
+            font-weight: 600;
+            color: #111827;
+        }
+        .empty {
+            font-size: 12px;
+            color: #6b7280;
+            text-align: center;
+            padding: 8px 0;
+        }
+        .footnote {
+            font-size: 11px;
+            color: #6b7280;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
-    <h2>✅ รายการที่อนุมัติแล้ว</h2>
-    <table>
-        <tr>
-            <th>หมายเลขคำขอ</th>
-            <th>จำนวนเงิน</th>
-            <th>เหตุผล</th>
-            <th>สถานที่รับเงิน</th>
-        </tr>
-        {% for request in approved_requests %}
-        <tr class="approved">
-            <td>{{ request.request_id }}</td>
-            <td>{{ request.amount }} บาท</td>
-            <td>{{ request.reason }}</td>
-            <td>{{ request.location }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+    <div class="app">
+        <div class="card">
+            <div class="header">
+                <div class="title-row">
+                    <div class="title">
+                        📊 สถานะคำขอเบิกเงิน
+                        <span class="title-badge">สรุปตามวันที่</span>
+                    </div>
+                </div>
+                <div class="subtitle">
+                    แสดงข้อมูลตามวันที่ปัจจุบันก่อน และสามารถเลือกวันที่/สาขา เพื่อดูข้อมูลย้อนหลังได้
+                </div>
+            </div>
 
-    <h2>❌ รายการที่ถูกปฏิเสธ</h2>
-    <table>
-        <tr>
-            <th>หมายเลขคำขอ</th>
-            <th>จำนวนเงิน</th>
-            <th>เหตุผล</th>
-            <th>สถานที่รับเงิน</th>
-        </tr>
-        {% for request in rejected_requests %}
-        <tr class="rejected">
-            <td>{{ request.request_id }}</td>
-            <td>{{ request.amount }} บาท</td>
-            <td>{{ request.reason }}</td>
-            <td>{{ request.location }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+            <form method="get">
+                <div class="filters">
+                    <div class="filter-group">
+                        <label for="date">วันที่ (เวลาไทย)</label>
+                        <input
+                            id="date"
+                            name="date"
+                            type="date"
+                            value="{{ selected_date }}"
+                        />
+                    </div>
+                    <div class="filter-group">
+                        <label for="branch">สาขา / สถานที่รับเงิน</label>
+                        <select id="branch" name="branch">
+                            <option value="all" {% if selected_branch == 'all' %}selected{% endif %}>ทุกสาขา</option>
+                            <option value="คลังห้องเย็น" {% if selected_branch == 'คลังห้องเย็น' %}selected{% endif %}>คลังห้องเย็น</option>
+                            <option value="โนนิโกะ" {% if selected_branch == 'โนนิโกะ' %}selected{% endif %}>โนนิโกะ</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn-filter">แสดงผลตามวันที่/สาขาที่เลือก</button>
+            </form>
+
+            <div class="footnote">
+                ข้อมูลจะถูกบันทึกตามเวลาไทย (Bangkok +7) เพื่อให้การตรวจสอบย้อนหลังสอดคล้องกับการทำงานจริง
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">
+                <span>✅ รายการที่อนุมัติแล้ว</span>
+                <span class="pill">{{ approved_requests|length }} รายการ</span>
+            </div>
+            {% if approved_requests %}
+            <div class="list">
+                {% for request in approved_requests %}
+                <div class="item approved">
+                    <div class="item-header">
+                        <div class="item-id">หมายเลขคำขอ: {{ request.request_id }}</div>
+                        <div class="status-badge approved">อนุมัติแล้ว</div>
+                    </div>
+                    <div class="item-row">
+                        <span>จำนวนเงิน</span>
+                        <span class="value">{{ request.amount }} บาท</span>
+                    </div>
+                    <div class="item-row">
+                        <span>เหตุผล</span>
+                        <span class="value">{{ request.reason }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>สถานที่รับเงิน</span>
+                        <span class="value">{{ request.location }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>วันที่ขอ (เวลาไทย)</span>
+                        <span class="value">
+                            {{ request.created_date_bkk if request.created_date_bkk is defined else '' }}
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty">ยังไม่มีรายการที่อนุมัติสำหรับวันที่และสาขานี้</div>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <div class="section-title">
+                <span>❌ รายการที่ถูกปฏิเสธ</span>
+                <span class="pill">{{ rejected_requests|length }} รายการ</span>
+            </div>
+            {% if rejected_requests %}
+            <div class="list">
+                {% for request in rejected_requests %}
+                <div class="item rejected">
+                    <div class="item-header">
+                        <div class="item-id">หมายเลขคำขอ: {{ request.request_id }}</div>
+                        <div class="status-badge rejected">ปฏิเสธ</div>
+                    </div>
+                    <div class="item-row">
+                        <span>จำนวนเงิน</span>
+                        <span class="value">{{ request.amount }} บาท</span>
+                    </div>
+                    <div class="item-row">
+                        <span>เหตุผล</span>
+                        <span class="value">{{ request.reason }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>สถานที่รับเงิน</span>
+                        <span class="value">{{ request.location }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>วันที่ขอ (เวลาไทย)</span>
+                        <span class="value">
+                            {{ request.created_date_bkk if request.created_date_bkk is defined else '' }}
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty">ยังไม่มีรายการที่ถูกปฏิเสธสำหรับวันที่และสาขานี้</div>
+            {% endif %}
+        </div>
+    </div>
 </body>
 </html>

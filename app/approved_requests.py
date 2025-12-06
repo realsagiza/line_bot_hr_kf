@@ -4,7 +4,7 @@ import json
 import requests
 from flask import Blueprint, render_template, jsonify, redirect, url_for, request
 from db import requests_collection, transactions_collection  # ✅ Import transactions_collection
-from time_utils import now_bangkok_and_utc
+from time_utils import now_bangkok, now_bangkok_and_utc
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -32,14 +32,38 @@ def get_approved_requests():
 
 @approved_requests_bp.route("/money/request-status", methods=["GET"])
 def request_status():
-    """ แสดงรายการคำขอที่อนุมัติและปฏิเสธแล้ว """
-    approved_requests = list(requests_collection.find({"status": "approved"}, {"_id": 0}))
-    rejected_requests = list(requests_collection.find({"status": "rejected"}, {"_id": 0}))
+    """
+    แสดงสถานะคำขอ (สำเร็จ / ปฏิเสธ) แบบมีตัวกรอง:
+    - วันที่ (default = วันนี้ ตามเวลาไทย)
+    - สาขา (สถานที่รับเงิน) : ทั้งหมด / คลังห้องเย็น / โนนิโกะ
+    """
+    selected_date = request.args.get("date")
+    selected_branch = request.args.get("branch", "all")
+
+    # ถ้าไม่ส่งวันที่มา ให้ใช้วันที่ปัจจุบันตามเวลาไทย
+    if not selected_date:
+        selected_date = now_bangkok().date().isoformat()
+
+    query = {
+        "status": {"$in": ["approved", "rejected"]},
+        "created_date_bkk": selected_date,
+    }
+
+    if selected_branch in ("คลังห้องเย็น", "โนนิโกะ"):
+        query["location"] = selected_branch
+
+    cursor = requests_collection.find(query, {"_id": 0}).sort("created_at_bkk", -1)
+    all_requests = list(cursor)
+
+    approved_requests = [r for r in all_requests if r.get("status") == "approved"]
+    rejected_requests = [r for r in all_requests if r.get("status") == "rejected"]
 
     return render_template(
         "request_status.html",
         approved_requests=approved_requests,
-        rejected_requests=rejected_requests
+        rejected_requests=rejected_requests,
+        selected_date=selected_date,
+        selected_branch=selected_branch,
     )
 
 
