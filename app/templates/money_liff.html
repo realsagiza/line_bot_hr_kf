@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LIFF เงินสด KF</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --bg: #f3f4f6;
+      --card-bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #dbeafe 0, #f3f4f6 40%, #e5e7eb 100%);
+      color: #111827;
+    }
+    .app {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 18px;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+      padding: 18px 18px 20px;
+      margin-top: 12px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .title {
+      font-size: 18px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .title-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #e0f2fe;
+      color: #0369a1;
+      font-weight: 600;
+    }
+    .user-pill {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #4338ca;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: right;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 14px 0 8px;
+      color: #4b5563;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .btn-main {
+      border: none;
+      border-radius: 14px;
+      padding: 10px 10px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      cursor: pointer;
+      box-shadow: 0 12px 25px rgba(37, 99, 235, 0.35);
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+    .btn-main:active {
+      transform: translateY(1px) scale(0.99);
+      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.3);
+    }
+    .btn-main span.label {
+      font-size: 15px;
+    }
+    .btn-main span.desc {
+      font-size: 11px;
+      opacity: 0.9;
+    }
+    .btn-secondary {
+      border-radius: 12px;
+      padding: 9px 10px;
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.1s ease, transform 0.05s ease;
+    }
+    .btn-secondary:active {
+      background: #e5e7eb;
+      transform: translateY(1px);
+    }
+    .pill {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #374151;
+    }
+    .pill-approver {
+      background: #dcfce7;
+      color: #166534;
+    }
+    form {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    label {
+      font-size: 12px;
+      color: #4b5563;
+    }
+    input, select, textarea {
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      padding: 7px 9px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 48px;
+    }
+    .btn-submit {
+      margin-top: 4px;
+      border: none;
+      border-radius: 999px;
+      padding: 9px 12px;
+      font-size: 14px;
+      font-weight: 600;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 10px 22px rgba(22, 163, 74, 0.35);
+    }
+    .btn-submit:active {
+      transform: translateY(1px);
+      box-shadow: 0 6px 14px rgba(22, 163, 74, 0.3);
+    }
+    .status {
+      font-size: 12px;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+    .status-ok { color: #16a34a; }
+    .status-err { color: #b91c1c; }
+    .small {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+    .hidden { display: none; }
+  </style>
+
+  <!-- LIFF SDK -->
+  <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
+</head>
+<body>
+  <div class="app">
+    <div class="card">
+      <div class="header">
+        <div class="title">
+          💸 เงินสด KF
+          <span class="title-badge">LIFF</span>
+        </div>
+        <div class="user-pill" id="user-pill">กำลังตรวจสอบผู้ใช้...</div>
+      </div>
+
+      <div class="section-title">เมนูหลัก</div>
+      <div class="grid">
+        <button class="btn-main" onclick="scrollToForm()">
+          <span class="label">ขอเบิกเงินสด</span>
+          <span class="desc">กรอกจำนวนเงิน เหตุผล และสถานที่รับเงิน</span>
+        </button>
+        <button class="btn-main" onclick="openMyStatus()">
+          <span class="label">สถานะคำขอของฉัน</span>
+          <span class="desc">ดูรายการที่ขอและผลอนุมัติย้อนหลัง</span>
+        </button>
+      </div>
+
+      <div class="section-title" style="margin-top:16px;">สำหรับผู้อนุมัติ</div>
+      <button class="btn-secondary" id="btn-approver" onclick="openApprovals()" disabled>
+        <span>รายการรออนุมัติ</span>
+        <span class="pill pill-approver">กำลังเช็คสิทธิ์...</span>
+      </button>
+
+      <div class="small">
+        ระบบจะบันทึกวันที่/เวลา ตามเวลาไทย (Bangkok +7) เพื่อใช้ทำรายงานให้ตรงกับการทำงานจริง
+      </div>
+    </div>
+
+    <div class="card" id="request-card">
+      <div class="section-title" style="margin-top:0;">ฟอร์มขอเบิกเงินสด</div>
+      <form id="withdraw-form">
+        <div class="field">
+          <label for="amount">จำนวนเงิน (บาท)</label>
+          <input type="number" id="amount" min="1" step="1" required placeholder="เช่น 40, 80, 100">
+        </div>
+
+        <div class="field">
+          <label for="reason">เหตุผลในการเบิก</label>
+          <select id="reason" required onchange="onReasonChange()">
+            <option value="">-- เลือกเหตุผล --</option>
+            <option value="ice">ซื้อน้ำแข็ง</option>
+            <option value="fuel">เติมน้ำมัน</option>
+            <option value="other">อื่นๆ</option>
+          </select>
+        </div>
+
+        <div class="field hidden" id="field-license">
+          <label for="license">หมายเลขทะเบียนรถ (เฉพาะกรณีเติมน้ำมัน)</label>
+          <input type="text" id="license" placeholder="เช่น 1กก 1234">
+        </div>
+
+        <div class="field hidden" id="field-reason-other">
+          <label for="reason-other">ระบุเหตุผลเพิ่มเติม</label>
+          <textarea id="reason-other" placeholder="กรณีเลือกเหตุผลอื่นๆ"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="location">สถานที่รับเงิน</label>
+          <select id="location" required>
+            <option value="">-- เลือกสถานที่ --</option>
+            <option value="คลังห้องเย็น">คลังห้องเย็น</option>
+            <option value="โนนิโกะ">โนนิโกะ</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn-submit">ส่งคำขอเบิกเงิน</button>
+        <div class="status" id="form-status"></div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // TODO: ย้ายไป config ฝั่ง server ในอนาคต
+    const ALLOWED_APPROVER_IDS = [
+      "Ua66fafa180c3b007b9d5d73c2c427f16", // ตาม
+      "Ub64ece09131e33bde3ba2e6b811a7bf5", // จอย
+      "U4e96c538f2d4ecf68e8c0e38bcf76ee9", // คลัง
+      "U5d95b1764d928ecc5d9c064427420ebe", // เกอร์
+      "U12a6072a8079fc5f6fb6fee6e78b2910" // เครื่องที่อยู่เมก้า
+    ];
+
+    let currentUserId = null;
+
+    function onReasonChange() {
+      const reason = document.getElementById('reason').value;
+      const fieldLicense = document.getElementById('field-license');
+      const fieldOther = document.getElementById('field-reason-other');
+
+      if (reason === 'fuel') {
+        fieldLicense.classList.remove('hidden');
+      } else {
+        fieldLicense.classList.add('hidden');
+      }
+
+      if (reason === 'other') {
+        fieldOther.classList.remove('hidden');
+      } else {
+        fieldOther.classList.add('hidden');
+      }
+    }
+
+    function scrollToForm() {
+      document.getElementById('request-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function openMyStatus() {
+      // เปิดหน้า request-status เดิมใน LIFF
+      window.location.href = "/money/request-status";
+    }
+
+    function openApprovals() {
+      window.location.href = "/money/approved-requests";
+    }
+
+    async function initLiff() {
+      const userPill = document.getElementById('user-pill');
+      const btnApprover = document.getElementById('btn-approver');
+
+      try {
+        // ใช้ LIFF ID เดียวกับหน้าอนุมัติเดิม (ถ้าคุณแยก LIFF ID ใหม่ ให้แก้ตรงนี้)
+        await liff.init({ liffId: "2005595780-lYJx1JyJ" });
+        const profile = await liff.getProfile();
+        currentUserId = profile.userId;
+
+        userPill.textContent = profile.displayName || profile.userId;
+        userPill.title = profile.userId;
+
+        const isApprover = ALLOWED_APPROVER_IDS.includes(profile.userId);
+        btnApprover.disabled = !isApprover;
+        btnApprover.querySelector('.pill').textContent = isApprover ? "ผู้อนุมัติ" : "ใช้ได้เฉพาะสิทธิผู้อนุมัติ";
+
+      } catch (err) {
+        console.error("LIFF init error", err);
+        userPill.textContent = "ไม่สามารถโหลด LIFF ได้";
+      }
+    }
+
+    async function submitWithdrawForm(event) {
+      event.preventDefault();
+      const statusEl = document.getElementById('form-status');
+      statusEl.textContent = "";
+      statusEl.className = "status";
+
+      if (!currentUserId) {
+        statusEl.textContent = "ไม่พบข้อมูลผู้ใช้จาก LIFF กรุณาลองเปิดใหม่อีกครั้ง";
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      const amount = document.getElementById('amount').value.trim();
+      const reason = document.getElementById('reason').value;
+      const license = document.getElementById('license').value.trim();
+      const reasonOther = document.getElementById('reason-other').value.trim();
+      const location = document.getElementById('location').value;
+
+      if (!amount || Number(amount) <= 0) {
+        statusEl.textContent = "กรุณาระบุจำนวนเงินให้ถูกต้อง";
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (!reason) {
+        statusEl.textContent = "กรุณาเลือกเหตุผลในการเบิก";
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (reason === 'fuel' && !license) {
+        statusEl.textContent = "กรุณากรอกหมายเลขทะเบียนรถ";
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (reason === 'other' && !reasonOther) {
+        statusEl.textContent = "กรุณาระบุเหตุผลเพิ่มเติม";
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (!location) {
+        statusEl.textContent = "กรุณาเลือกสถานที่รับเงิน";
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      const payload = {
+        userId: currentUserId,
+        amount: amount,
+        reason: reason,
+        reasonOther: reasonOther,
+        licensePlate: license,
+        location: location
+      };
+
+      try {
+        statusEl.textContent = "กำลังส่งคำขอ...";
+        const res = await fetch("/money/api/withdraw-request", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.status !== "ok") {
+          throw new Error(data.message || "ไม่สามารถบันทึกคำขอได้");
+        }
+
+        statusEl.textContent = `บันทึกคำขอเรียบร้อย หมายเลขคำขอ: ${data.request_id}`;
+        statusEl.classList.add('status-ok');
+        document.getElementById('withdraw-form').reset();
+        onReasonChange();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || "เกิดข้อผิดพลาดในการส่งคำขอ";
+        statusEl.classList.add('status-err');
+      }
+    }
+
+    window.addEventListener('load', () => {
+      initLiff();
+      document.getElementById('withdraw-form').addEventListener('submit', submitWithdrawForm);
+    });
+  </script>
+</body>
+</html>
+
+

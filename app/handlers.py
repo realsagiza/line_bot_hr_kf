@@ -7,6 +7,7 @@ from linebot.models import (
 )
 from config import Config
 from db import requests_collection  # ✅ ใช้ connection pool
+from time_utils import now_bangkok_and_utc
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -296,6 +297,10 @@ def send_summary(user_id, line_bot_api):
         line_bot_api.push_message(user_id, TextSendMessage(text="⚠️ ข้อมูลไม่ครบ กรุณากรอกข้อมูลใหม่ตั้งแต่ต้น"))
         return
 
+    # เวลาปัจจุบันตาม timezone กรุงเทพ และ UTC
+    now_bkk, now_utc = now_bangkok_and_utc()
+    date_bkk = now_bkk.date().isoformat()
+
     request_id = generate_request_id()
     user_session[user_id]["request_id"] = request_id
 
@@ -308,7 +313,21 @@ def send_summary(user_id, line_bot_api):
         "reason": reason,
         "license_plate": license_plate,
         "location": location_text,
-        "status": "pending"
+        "status": "pending",
+        # เวลาสร้างคำขอ
+        "created_at_bkk": now_bkk.isoformat(),
+        "created_at_utc": now_utc.isoformat(),
+        "created_date_bkk": date_bkk,
+        # ประวัติสถานะเพื่อใช้ทำรายงาน/ตรวจสอบย้อนหลัง
+        "status_history": [
+            {
+                "status": "pending",
+                "at_bkk": now_bkk.isoformat(),
+                "at_utc": now_utc.isoformat(),
+                "date_bkk": date_bkk,
+                "by": user_id,
+            }
+        ],
     }
     requests_collection.insert_one(request_data)
 
@@ -319,6 +338,7 @@ def send_summary(user_id, line_bot_api):
         f"📌 เหตุผล: {reason}\n"
         f"🚗 หมายเลขทะเบียน: {license_plate if license_plate else '-'}\n"
         f"📍 สถานที่รับเงิน: {location_text}\n"
+        f"📅 วันที่ขอ (เวลาไทย): {date_bkk}\n"
         f"🔄 กรุณารอการอนุมัติจากผู้ดูแล"
     )
     reset_state(user_id)
