@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>สถานะคำขอเบิกเงิน</title>
+    <title>สถานะการถอน/ฝากเงิน</title>
     <style>
         :root {
             --primary: #2563eb;
@@ -200,12 +200,12 @@
             <div class="header">
                 <div class="title-row">
                     <div class="title">
-                        📊 สถานะคำขอเบิกเงิน
-                        <span class="title-badge">สรุปตามวันที่</span>
+                        📊 สถานะการถอน/ฝากเงิน
+                        <span class="title-badge">สรุปตามวันที่ (เวลาไทย)</span>
                     </div>
                 </div>
                 <div class="subtitle">
-                    แสดงข้อมูลตามวันที่ปัจจุบันก่อน และสามารถเลือกวันที่/สาขา เพื่อดูข้อมูลย้อนหลังได้
+                    แสดงสถานะการถอนเงิน (เบิกเงินสด) และการฝากเงิน ตามวันที่ปัจจุบันก่อน และสามารถเลือกวันที่/สาขา เพื่อดูข้อมูลย้อนหลังได้
                 </div>
             </div>
 
@@ -276,6 +276,44 @@
             {% endif %}
         </div>
 
+        <div class="card">
+            <div class="section-title">
+                <span>💰 รายการฝากเงินสด</span>
+                <span class="pill">{{ deposit_transactions|length }} รายการ</span>
+            </div>
+            {% if deposit_transactions %}
+            <div class="list">
+                {% for tx in deposit_transactions %}
+                <div class="item">
+                    <div class="item-header">
+                        <div class="item-id">
+                            เหตุผล: {{ tx.name }}
+                        </div>
+                        <span class="pill">
+                            {{ tx.selectedStorage }}
+                        </span>
+                    </div>
+                    <div class="item-row">
+                        <span>จำนวนเงิน</span>
+                        <span class="value">{{ tx.amount }} บาท</span>
+                    </div>
+                    <div class="item-row">
+                        <span>ประเภท</span>
+                        <span class="value">ฝากเงิน ({{ tx.type }})</span>
+                    </div>
+                    <div class="item-row">
+                        <span>วันที่ทำรายการ (เวลาไทย)</span>
+                        <span class="value">
+                            {{ tx.transaction_date_bkk if tx.transaction_date_bkk is defined else selected_date }}
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty">ยังไม่มีรายการฝากเงินสำหรับวันที่และสาขานี้</div>
+            {% endif %}
+        </div>
         <div class="card">
             <div class="section-title">
                 <span>❌ รายการที่ถูกปฏิเสธ</span>

@@ -47,6 +47,7 @@ def request_status():
     if not selected_date:
         selected_date = now_bangkok().date().isoformat()
 
+    # คำขอเบิกเงิน (withdraw) จาก collection withdraw_requests
     query = {
         "status": {"$in": ["approved", "rejected"]},
         "created_date_bkk": selected_date,
@@ -61,10 +62,24 @@ def request_status():
     approved_requests = [r for r in all_requests if r.get("status") == "approved"]
     rejected_requests = [r for r in all_requests if r.get("status") == "rejected"]
 
+    # ข้อมูลฝากเงิน (deposit) จาก collection transactions
+    deposit_query = {
+        "direction": "deposit",
+        "transaction_date_bkk": selected_date,
+    }
+    if selected_branch in ("คลังห้องเย็น", "โนนิโกะ"):
+        deposit_query["selectedStorage"] = selected_branch
+
+    deposit_cursor = transactions_collection.find(deposit_query, {"_id": 0}).sort(
+        "transaction_at_bkk", -1
+    )
+    deposit_transactions = list(deposit_cursor)
+
     return render_template(
         "request_status.html",
         approved_requests=approved_requests,
         rejected_requests=rejected_requests,
+        deposit_transactions=deposit_transactions,
         selected_date=selected_date,
         selected_branch=selected_branch,
     )
