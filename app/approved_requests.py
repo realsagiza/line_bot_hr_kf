@@ -4,7 +4,7 @@ import logging
 import json
 import requests
 from flask import Blueprint, render_template, jsonify, redirect, url_for, request
-from db import requests_collection, transactions_collection  # ✅ Import transactions_collection
+from db import requests_collection, deposit_requests_collection, transactions_collection
 from time_utils import now_bangkok, now_bangkok_and_utc
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
@@ -477,6 +477,46 @@ def api_deposit_request():
         "X-Request-Id": request_header_id,
     }
 
+    # สร้าง log คำขอฝากเงินก่อน (pending)
+    now_bkk, now_utc = now_bangkok_and_utc()
+    date_bkk = now_bkk.date().isoformat()
+
+    deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
+
+    deposit_doc = {
+        "deposit_request_id": deposit_request_id,
+        "user_id": user_id,
+        "amount": amount_int,
+        "reason_code": reason_code,
+        "reason": reason,
+        "location": location_text,
+        "branch_id": branch_id,
+        "api_url": api_url,
+        "payload": payload,
+        "trace_id": trace_id,
+        "request_header_id": request_header_id,
+        "status": "pending",
+        "created_at_bkk": now_bkk.isoformat(),
+        "created_at_utc": now_utc.isoformat(),
+        "created_date_bkk": date_bkk,
+        "status_history": [
+            {
+                "status": "pending",
+                "at_bkk": now_bkk.isoformat(),
+                "at_utc": now_utc.isoformat(),
+                "date_bkk": date_bkk,
+                "by": user_id,
+            }
+        ],
+    }
+
+    try:
+        deposit_requests_collection.insert_one(deposit_doc)
+        logger.info(f"✅ [DEPOSIT] สร้างคำขอฝากเงิน log: {deposit_request_id}")
+    except Exception as e:
+        logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
+        return jsonify({"status": "error", "message": "ไม่สามารถบันทึกคำขอฝากเงินได้"}), 500
+
     logger.info(f"📤 [DEPOSIT] ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
 
     try:
@@ -486,11 +526,65 @@ def api_deposit_request():
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logger.error(f"❌ [DEPOSIT] API Error: {str(e)}")
+
+        now_bkk_err, now_utc_err = now_bangkok_and_utc()
+        date_bkk_err = now_bkk_err.date().isoformat()
+
+        # อัปเดต log คำขอให้เป็น error
+        deposit_requests_collection.update_one(
+            {"deposit_request_id": deposit_request_id},
+            {
+                "$set": {
+                    "status": "error",
+                    "error_message": str(e),
+                    "updated_at_bkk": now_bkk_err.isoformat(),
+                    "updated_at_utc": now_utc_err.isoformat(),
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "error",
+                        "at_bkk": now_bkk_err.isoformat(),
+                        "at_utc": now_utc_err.isoformat(),
+                        "date_bkk": date_bkk_err,
+                        "by": "deposit_api",
+                    }
+                },
+            },
+        )
+
         return jsonify({"status": "error", "message": f"API ฝากเงินผิดพลาด: {str(e)}"}), 500
 
-    # บันทึกธุรกรรมฝากเงินลง transactions เพื่อใช้ทำรายงาน
-    now_bkk, now_utc = now_bangkok_and_utc()
-    date_bkk = now_bkk.date().isoformat()
+    # สำเร็จ: อัปเดต log คำขอฝากเงิน และบันทึกธุรกรรม
+    now_bkk_ok, now_utc_ok = now_bangkok_and_utc()
+    date_bkk_ok = now_bkk_ok.date().isoformat()
+
+    try:
+        # บันทึก response ดิบไว้ใน log (อาจยาว แต่มีประโยชน์ตอน debug)
+        response_text = response.text
+    except Exception:
+        response_text = ""
+
+    deposit_requests_collection.update_one(
+        {"deposit_request_id": deposit_request_id},
+        {
+            "$set": {
+                "status": "success",
+                "updated_at_bkk": now_bkk_ok.isoformat(),
+                "updated_at_utc": now_utc_ok.isoformat(),
+                "external_response_text": response_text,
+            },
+            "$push": {
+                "status_history": {
+                    "status": "success",
+                    "at_bkk": now_bkk_ok.isoformat(),
+                    "at_utc": now_utc_ok.isoformat(),
+                    "date_bkk": date_bkk_ok,
+                    "by": "deposit_api",
+                }
+            },
+        },
+    )
+
     transaction_data = {
         "name": reason,
         "amount": amount_int,
@@ -498,10 +592,10 @@ def api_deposit_request():
         "tags": [],
         "type": "income",  # แยกจากเบิกเงินที่เป็น expense
         "selectedStorage": location_text,
-        "selectedDate": date_bkk,
-        "transaction_at_bkk": now_bkk.isoformat(),
-        "transaction_at_utc": now_utc.isoformat(),
-        "transaction_date_bkk": date_bkk,
+        "selectedDate": date_bkk_ok,
+        "transaction_at_bkk": now_bkk_ok.isoformat(),
+        "transaction_at_utc": now_utc_ok.isoformat(),
+        "transaction_date_bkk": date_bkk_ok,
         "direction": "deposit",
         "channel": "liff",
         "user_id": user_id,

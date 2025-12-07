@@ -20,5 +20,12 @@ class Database:
 # สร้าง Database Instance
 db_client = Database.get_connection()
 db = db_client["kf_hr"]  # ใช้ database ตามที่กำหนดใน .env
+
+# คำขอเบิกเงินสด
 requests_collection = db["withdraw_requests"]
+
+# คำขอฝากเงินสด (log คำขอ + สถานะจากเครื่องฝากเงิน)
+deposit_requests_collection = db["deposit_requests"]
+
+# ธุรกรรมการเงินที่สำเร็จแล้ว (ทั้งถอน/ฝาก)
 transactions_collection = db["transactions"]  # เพิ่ม collection สำหรับเก็บข้อมูลธุรกรรม
