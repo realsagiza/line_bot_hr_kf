@@ -27,6 +27,7 @@ def build_correlation_headers(
         "X-Trace-Id": trace_id,
         "X-Request-Id": request_id,
         "X-Sale-Id": str(sale_id),
+        "X-Caller-Service": "line_bot_hr_kf",
     }
     return headers, {
         "trace_id": trace_id,
