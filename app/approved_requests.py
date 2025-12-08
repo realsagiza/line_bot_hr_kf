@@ -15,6 +15,25 @@ logger = logging.getLogger(__name__)  # ✅ แก้ไขให้ประก
 # สร้าง Blueprint สำหรับ Web UI / LIFF เงิน
 approved_requests_bp = Blueprint("approved_requests", __name__, template_folder="templates")
 
+def _is_withdraw_success(response_json: dict) -> bool:
+    """
+    Accept both legacy shape {\"transaction_status\":\"success\"}
+    and new REST_API_CI SOAP shape {\"response\": { Body:[{ CashoutResponse:[{ result:'0', ... }] }] } }.
+    """
+    try:
+        if response_json.get("transaction_status") == "success":
+            return True
+    except Exception:
+        pass
+    try:
+        resp = response_json.get("response") or {}
+        body = (resp.get("Body") or [None])[0] or {}
+        cashout = (body.get("CashoutResponse") or [None])[0] or {}
+        result = cashout.get("result")
+        return str(result) == "0"
+    except Exception:
+        return False
+
 
 @approved_requests_bp.route("/money/liff", methods=["GET"])
 def money_liff_home():
@@ -168,7 +187,7 @@ def approve_request(request_id):
             response.raise_for_status()  # ถ้า HTTP Status ไม่ใช่ 200 จะเกิด Exception
 
             response_data = response.json()
-            if response_data.get("transaction_status") != "success":
+            if not _is_withdraw_success(response_data):
                 logger.error(f"❌ API ตอบกลับผิดพลาด: {response_data}")
                 return jsonify({"status": "error", "message": f"API ตอบกลับผิดพลาด: {response_data}"}), 500
             else:
@@ -274,7 +293,7 @@ def approve_request(request_id):
             response.raise_for_status()  # ถ้า HTTP Status ไม่ใช่ 200 จะเกิด Exception
 
             response_data = response.json()
-            if response_data.get("transaction_status") != "success":
+            if not _is_withdraw_success(response_data):
                 logger.error(f"❌ API ตอบกลับผิดพลาด: {response_data}")
                 return jsonify({"status": "error", "message": f"API ตอบกลับผิดพลาด: {response_data}"}), 500
             else:
