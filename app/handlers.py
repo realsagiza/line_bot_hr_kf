@@ -6,6 +6,7 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction
 )
 from config import Config
+from http_utils import build_correlation_headers
 from db import requests_collection  # ✅ ใช้ connection pool
 from time_utils import now_bangkok_and_utc
 
@@ -180,13 +181,8 @@ def handle_postback(event, line_bot_api):
                 "machine_id": "line_bot_audit_kf",
                 "branch_id": "NONIKO"
             }
-            trace_id = f"t-{uuid.uuid4().hex[:8]}"
-            request_id = f"r-{uuid.uuid4().hex[:8]}"
-            headers = {
-                "Content-Type": "application/json",
-                "X-Trace-Id": trace_id,
-                "X-Request-Id": request_id
-            }
+            # Generate correlation headers (no pre-existing sale id for this quick flow)
+            headers, _meta = build_correlation_headers()
 
             response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
             reset_state(user_id)
@@ -205,13 +201,7 @@ def handle_postback(event, line_bot_api):
                 "machine_id": "line_bot_audit_kf",
                 "branch_id": "Klangfrozen"
             }
-            trace_id = f"t-{uuid.uuid4().hex[:8]}"
-            request_id = f"r-{uuid.uuid4().hex[:8]}"
-            headers = {
-                "Content-Type": "application/json",
-                "X-Trace-Id": trace_id,
-                "X-Request-Id": request_id
-            }
+            headers, _meta = build_correlation_headers()
 
             response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
             reset_state(user_id)

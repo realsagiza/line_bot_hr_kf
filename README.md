@@ -99,13 +99,14 @@
   - การอนุมัติ/ปฏิเสธคำขอจะอัปเดต `updated_at_*` และ `status_history` และบันทึกธุรกรรมพร้อมวันที่ตามเวลาไทย
 
 ## ข้อกำหนด API ภายนอก
-- Endpoint ฝากเงินต้องส่ง Header ต่อไปนี้เสมอ:
+- เพื่อให้สอดคล้องกับ REST_API_CI และสามารถตามรอย (trace) ได้ครบ เมื่อระบบนี้ยิงไปยัง REST_API_CI หรือบริการปลายทาง ให้ส่ง Header ต่อไปนี้เสมอ:
   - `X-Trace-Id`: ไอดีติดตามรูปแบบ `t-<8 hex>`
   - `X-Request-Id`: ไอดีคำขอรูปแบบ `r-<8 hex>`
+  - `X-Sale-Id`: ไอดีธุรกรรมเชิงธุรกิจ (เช่น `request_id` ของคำขอ หรือรหัสคำขอฝาก `deposit_request_id`) ใช้สำหรับ group เหตุการณ์ฝั่งปลายทางให้หาเจอง่ายใน Transaction Events Monitor
 - ตัวอย่างคำสั่งทดสอบ:
 ```bash
 curl -s -X POST -H 'Content-Type: application/json' \
-  -H 'X-Trace-Id: t-9' -H 'X-Request-Id: r-9' \
+  -H 'X-Trace-Id: t-9' -H 'X-Request-Id: r-9' -H 'X-Sale-Id: s-9' \
   -d '{"amount": 250, "machine_id":"M1", "branch_id":"B1"}' \
   http://localhost:5050/api/deposit | jq
 ```

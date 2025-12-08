@@ -6,6 +6,7 @@ import requests
 from flask import Blueprint, render_template, jsonify, redirect, url_for, request
 from db import requests_collection, deposit_requests_collection, transactions_collection
 from time_utils import now_bangkok, now_bangkok_and_utc
+from http_utils import build_correlation_headers
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -149,13 +150,9 @@ def approve_request(request_id):
             "machine_id": "line_bot_audit_kf",
             "branch_id": "NONIKO"
         }
-        trace_id = f"t-{uuid.uuid4().hex[:8]}"
-        request_header_id = f"r-{uuid.uuid4().hex[:8]}"
-        headers = {
-            "Content-Type": "application/json",
-            "X-Trace-Id": trace_id,
-            "X-Request-Id": request_header_id,
-        }
+        headers, meta = build_correlation_headers(sale_id=request_id)
+        trace_id = meta["trace_id"]
+        request_header_id = meta["request_id"]
 
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
@@ -242,7 +239,7 @@ def approve_request(request_id):
                             "machine_request": {
                                 "api_url": api_url,
                                 "payload": payload,
-                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id},
+                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id, "X-Sale-Id": str(request_id)},
                             },
                         }
                     },
@@ -257,13 +254,9 @@ def approve_request(request_id):
             "machine_id": "line_bot_audit_kf",
             "branch_id": "Klanfrozen"
         }
-        trace_id = f"t-{uuid.uuid4().hex[:8]}"
-        request_header_id = f"r-{uuid.uuid4().hex[:8]}"
-        headers = {
-            "Content-Type": "application/json",
-            "X-Trace-Id": trace_id,
-            "X-Request-Id": request_header_id,
-        }
+        headers, meta = build_correlation_headers(sale_id=request_id)
+        trace_id = meta["trace_id"]
+        request_header_id = meta["request_id"]
 
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
@@ -350,7 +343,7 @@ def approve_request(request_id):
                             "machine_request": {
                                 "api_url": api_url,
                                 "payload": payload,
-                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id},
+                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id, "X-Sale-Id": str(request_id)},
                             },
                         }
                     },
@@ -565,13 +558,10 @@ def api_deposit_request():
         "machine_id": "line_bot_audit_kf",
         "branch_id": branch_id,
     }
-    trace_id = f"t-{uuid.uuid4().hex[:8]}"
-    request_header_id = f"r-{uuid.uuid4().hex[:8]}"
-    headers = {
-        "Content-Type": "application/json",
-        "X-Trace-Id": trace_id,
-        "X-Request-Id": request_header_id,
-    }
+    # Use deposit_request_id as sale_id for downstream correlation
+    headers, meta = build_correlation_headers(sale_id=deposit_request_id)
+    trace_id = meta["trace_id"]
+    request_header_id = meta["request_id"]
 
     # สร้าง log คำขอฝากเงินก่อน (pending)
     now_bkk, now_utc = now_bangkok_and_utc()
@@ -595,6 +585,7 @@ def api_deposit_request():
         "created_at_bkk": now_bkk.isoformat(),
         "created_at_utc": now_utc.isoformat(),
         "created_date_bkk": date_bkk,
+        "sale_id_for_machine": deposit_request_id,
         "status_history": [
             {
                 "status": "pending",
