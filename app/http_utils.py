@@ -43,10 +43,13 @@ def get_rest_api_ci_base_for_branch(branch_id: Optional[str]) -> str:
     Falls back to Config.REST_API_CI_BASE.
     """
     b = (branch_id or "").strip().lower()
+    # Hard routing as requested:
+    # - NONIKO -> 10.0.0.14:5000
+    # - Klangfrozen/ColdStorage -> 10.0.0.15:5000
     if b in ("noniko", "branch_noniko"):
-        return Config.REST_API_CI_BASE_NONIKO or Config.REST_API_CI_BASE
+        return "http://10.0.0.14:5000"
     if b in ("klangfrozen", "klanfrozen", "cold_storage", "coldstorage"):
-        return Config.REST_API_CI_BASE_KLANGFROZEN or Config.REST_API_CI_BASE
+        return "http://10.0.0.15:5000"
     return Config.REST_API_CI_BASE
 
 
