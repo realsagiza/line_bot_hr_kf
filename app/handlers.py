@@ -175,7 +175,8 @@ def handle_postback(event, line_bot_api):
                 f"📍 สถานที่รับเงิน: {location}\n"
                 f"🔄 ฝากเงินทอนสำเร็จแล้ว"
             )
-            api_url = "http://10.0.0.14:5050/api/deposit"
+            from config import Config
+            api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
             payload = {
                 "amount": int(amount),  # ✅ แปลงเป็น int
                 "machine_id": "line_bot_audit_kf",
@@ -195,7 +196,8 @@ def handle_postback(event, line_bot_api):
                 f"📍 สถานที่รับเงิน: {location}\n"
                 f"🔄 ฝากเงินทอนสำเร็จแล้ว"
             )
-            api_url = "http://10.0.0.15:5050/api/deposit"
+            from config import Config
+            api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
             payload = {
                 "amount": int(amount),  # ✅ แปลงเป็น int
                 "machine_id": "line_bot_audit_kf",

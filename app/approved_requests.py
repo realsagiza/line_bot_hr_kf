@@ -144,7 +144,8 @@ def approve_request(request_id):
 
     # ✅ กรณีสถานที่รับเงินเป็น "โนนิโกะ"
     if location == "โนนิโกะ":
-        api_url = "http://10.0.0.14:5050/api/withdraw"
+        from config import Config
+        api_url = f"{Config.REST_API_CI_BASE}/bot/withdraw"
         payload = {
             "amount": int(amount),  # ✅ แปลงเป็น int
             "machine_id": "line_bot_audit_kf",
@@ -248,11 +249,12 @@ def approve_request(request_id):
                 logger.error(f"❌ บันทึก machine_error ไม่สำเร็จ: {str(e2)}")
             return jsonify({"status": "error", "message": "ตู้ถอนเงินยังไม่ตอบรับ กรุณาตรวจสอบสถานะอีกครั้ง"}), 502
     elif location == "คลังห้องเย็น":
-        api_url = "http://10.0.0.15:5050/api/withdraw"
+        from config import Config
+        api_url = f"{Config.REST_API_CI_BASE}/bot/withdraw"
         payload = {
             "amount": int(amount),  # ✅ แปลงเป็น int
             "machine_id": "line_bot_audit_kf",
-            "branch_id": "Klanfrozen"
+            "branch_id": "Klangfrozen"
         }
         headers, meta = build_correlation_headers(sale_id=request_id)
         trace_id = meta["trace_id"]
@@ -546,11 +548,12 @@ def api_deposit_request():
         reason = reason_code
 
     # กำหนด endpoint และ branch_id ตามสาขา (ตามโค้ดเดิมใน handlers)
+    from config import Config
     if location_text == "โนนิโกะ":
-        api_url = "http://10.0.0.14:5050/api/deposit"
+        api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
         branch_id = "NONIKO"
     else:  # คลังห้องเย็น
-        api_url = "http://10.0.0.15:5050/api/deposit"
+        api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
         branch_id = "Klangfrozen"
 
     payload = {

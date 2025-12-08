@@ -9,3 +9,4 @@ class Config:
     LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
     LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    REST_API_CI_BASE = os.getenv("REST_API_CI_BASE", "http://localhost:5000")
