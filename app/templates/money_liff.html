@@ -547,7 +547,7 @@
       };
 
       try {
-        statusEl.textContent = "กำลังส่งคำขอฝากเงิน...";
+        statusEl.textContent = "กำลังส่งคำขอฝากเงิน... (จะดำเนินการเบื้องหลัง)";
         const res = await fetch("/money/api/deposit-request", {
           method: "POST",
           headers: {
@@ -561,10 +561,18 @@
           throw new Error(data.message || "ไม่สามารถฝากเงินได้");
         }
 
-        statusEl.textContent = "ฝากเงินสำเร็จแล้ว";
-        statusEl.classList.add('status-ok');
-        document.getElementById('deposit-form').reset();
-        onDepositReasonChange();
+        const depositId = data.deposit_request_id;
+        if (!depositId) {
+          throw new Error("ไม่ได้รับเลขที่คำขอฝากเงิน");
+        }
+
+        statusEl.textContent = "รับคำขอแล้ว กำลังประมวลผลฝากเงิน...";
+
+        // เริ่ม polling สถานะจนกว่าจะสำเร็จ/ล้มเหลว หรือหมดเวลา
+        await pollDepositStatus(depositId, statusEl);
+
+        // ไม่ reset ฟอร์มจนกว่าจะรู้ผลเพื่อให้ผู้ใช้เห็นสถานะก่อน
+        // หากสำเร็จแล้วจึงค่อย reset
       } catch (err) {
         console.error(err);
         statusEl.textContent = err.message || "เกิดข้อผิดพลาดในการฝากเงิน";
@@ -572,6 +580,47 @@
       }
     }
 
+    async function pollDepositStatus(depositId, statusEl, timeoutMs = 180000, intervalMs = 2500) {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        try {
+          const r = await fetch(`/money/api/deposit-status?id=${encodeURIComponent(depositId)}`, {
+            method: "GET",
+            headers: { "Accept": "application/json" }
+          });
+          const j = await r.json();
+          if (r.ok && j.status === "ok") {
+            const s = (j.data || {}).status;
+            if (s === "success") {
+              statusEl.textContent = "ฝากเงินสำเร็จแล้ว";
+              statusEl.classList.remove('status-err');
+              statusEl.classList.add('status-ok');
+              document.getElementById('deposit-form').reset();
+              onDepositReasonChange();
+              return;
+            } else if (s === "error") {
+              const msg = (j.data || {}).error_message || "ฝากเงินล้มเหลว";
+              statusEl.textContent = `ผิดพลาด: ${msg}`;
+              statusEl.classList.remove('status-ok');
+              statusEl.classList.add('status-err');
+              return;
+            } else {
+              statusEl.textContent = "กำลังประมวลผลฝากเงิน...";
+            }
+          } else {
+            // API error แต่ยัง retry ต่อ
+            statusEl.textContent = "กำลังประมวลผลฝากเงิน...";
+          }
+        } catch (_e) {
+          // เงียบๆ แล้ว retry ต่อ
+          statusEl.textContent = "กำลังประมวลผลฝากเงิน...";
+        }
+        await new Promise(res => setTimeout(res, intervalMs));
+      }
+      statusEl.textContent = "ยังไม่ทราบผล กรุณาตรวจสอบใน 'สถานะคำขอของฉัน' ภายหลัง";
+      statusEl.classList.remove('status-ok');
+      statusEl.classList.add('status-err');
+    }
     window.addEventListener('load', () => {
       initLiff();
       document.getElementById('withdraw-form').addEventListener('submit', submitWithdrawForm);

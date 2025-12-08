@@ -3,6 +3,7 @@ import requests
 import logging
 import json
 import requests
+import threading
 from flask import Blueprint, render_template, jsonify, redirect, url_for, request
 from db import requests_collection, deposit_requests_collection, transactions_collection
 from time_utils import now_bangkok, now_bangkok_and_utc
@@ -523,7 +524,10 @@ def api_deposit_request():
       "location": "คลังห้องเย็น" | "โนนิโกะ"
     }
 
-    ทำงานคล้าย flow เดิมใน handlers: ยิง API ไปที่ตู้ฝากเงิน แล้วตอบกลับผลลัพธ์
+    โหมดใหม่: async
+    - บันทึกคำขอและสร้าง deposit_request_id
+    - ตอบกลับทันที (status=ok, deposit_request_id)
+    - ประมวลผลฝากเงินจริงใน background และอัปเดตสถานะใน DB
     """
     try:
         data = request.get_json(force=True) or {}
@@ -628,95 +632,131 @@ def api_deposit_request():
         logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
         return jsonify({"status": "error", "message": "ไม่สามารถบันทึกคำขอฝากเงินได้"}), 500
 
-    logger.info(f"📤 [DEPOSIT] ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
+    # ประมวลผล async ใน background thread
+    def _process_deposit_async():
+        logger.info(f"📤 [DEPOSIT] (async) ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
+        try:
+            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            status_code = response.status_code
+            try:
+                response_text = response.text
+            except Exception:
+                response_text = ""
+            try:
+                response.raise_for_status()
+            except Exception as e_http:
+                now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                date_bkk_err = now_bkk_err.date().isoformat()
+                deposit_requests_collection.update_one(
+                    {"deposit_request_id": deposit_request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "error_message": f"HTTP {status_code}: {str(e_http)}",
+                            "external_response_text": response_text,
+                            "updated_at_bkk": now_bkk_err.isoformat(),
+                            "updated_at_utc": now_utc_err.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk_err.isoformat(),
+                                "at_utc": now_utc_err.isoformat(),
+                                "date_bkk": date_bkk_err,
+                                "by": "deposit_api_async",
+                            }
+                        },
+                    },
+                )
+                return
 
-    try:
-        response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
-        logger.info(f"📤 [DEPOSIT] Response Status: {response.status_code}")
-        logger.info(f"📤 [DEPOSIT] Response Body: {response.text}")
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ [DEPOSIT] API Error: {str(e)}")
-
-        now_bkk_err, now_utc_err = now_bangkok_and_utc()
-        date_bkk_err = now_bkk_err.date().isoformat()
-
-        # อัปเดต log คำขอให้เป็น error
-        deposit_requests_collection.update_one(
-            {"deposit_request_id": deposit_request_id},
-            {
-                "$set": {
-                    "status": "error",
-                    "error_message": str(e),
-                    "updated_at_bkk": now_bkk_err.isoformat(),
-                    "updated_at_utc": now_utc_err.isoformat(),
+            # success
+            now_bkk_ok, now_utc_ok = now_bangkok_and_utc()
+            date_bkk_ok = now_bkk_ok.date().isoformat()
+            deposit_requests_collection.update_one(
+                {"deposit_request_id": deposit_request_id},
+                {
+                    "$set": {
+                        "status": "success",
+                        "updated_at_bkk": now_bkk_ok.isoformat(),
+                        "updated_at_utc": now_utc_ok.isoformat(),
+                        "external_response_text": response_text,
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "success",
+                            "at_bkk": now_bkk_ok.isoformat(),
+                            "at_utc": now_utc_ok.isoformat(),
+                            "date_bkk": date_bkk_ok,
+                            "by": "deposit_api_async",
+                        }
+                    },
                 },
-                "$push": {
-                    "status_history": {
+            )
+            transaction_data = {
+                "name": reason,
+                "amount": amount_int,
+                "receiptAttached": False,
+                "tags": [],
+                "type": "income",
+                "selectedStorage": location_text,
+                "selectedDate": date_bkk_ok,
+                "transaction_at_bkk": now_bkk_ok.isoformat(),
+                "transaction_at_utc": now_utc_ok.isoformat(),
+                "transaction_date_bkk": date_bkk_ok,
+                "direction": "deposit",
+                "channel": "liff",
+                "user_id": user_id,
+                "deposit_request_id": deposit_request_id,
+            }
+            try:
+                result = transactions_collection.insert_one(transaction_data)
+                logger.info(f"✅ [DEPOSIT] (async) บันทึกธุรกรรมฝากเงิน ID: {result.inserted_id} สำเร็จ")
+            except Exception as e_tx:
+                logger.error(f"❌ [DEPOSIT] (async) บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e_tx)}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [DEPOSIT] (async) API Error: {str(e)}")
+            now_bkk_err, now_utc_err = now_bangkok_and_utc()
+            date_bkk_err = now_bkk_err.date().isoformat()
+            deposit_requests_collection.update_one(
+                {"deposit_request_id": deposit_request_id},
+                {
+                    "$set": {
                         "status": "error",
-                        "at_bkk": now_bkk_err.isoformat(),
-                        "at_utc": now_utc_err.isoformat(),
-                        "date_bkk": date_bkk_err,
-                        "by": "deposit_api",
-                    }
+                        "error_message": str(e),
+                        "updated_at_bkk": now_bkk_err.isoformat(),
+                        "updated_at_utc": now_utc_err.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk_err.isoformat(),
+                            "at_utc": now_utc_err.isoformat(),
+                            "date_bkk": date_bkk_err,
+                            "by": "deposit_api_async",
+                        }
+                    },
                 },
-            },
-        )
+            )
 
-        return jsonify({"status": "error", "message": f"API ฝากเงินผิดพลาด: {str(e)}"}), 500
+    threading.Thread(target=_process_deposit_async, name=f"deposit-{deposit_request_id}", daemon=True).start()
+    return jsonify({"status": "ok", "deposit_request_id": deposit_request_id})
 
-    # สำเร็จ: อัปเดต log คำขอฝากเงิน และบันทึกธุรกรรม
-    now_bkk_ok, now_utc_ok = now_bangkok_and_utc()
-    date_bkk_ok = now_bkk_ok.date().isoformat()
-
-    try:
-        # บันทึก response ดิบไว้ใน log (อาจยาว แต่มีประโยชน์ตอน debug)
-        response_text = response.text
-    except Exception:
-        response_text = ""
-
-    deposit_requests_collection.update_one(
-        {"deposit_request_id": deposit_request_id},
-        {
-            "$set": {
-                "status": "success",
-                "updated_at_bkk": now_bkk_ok.isoformat(),
-                "updated_at_utc": now_utc_ok.isoformat(),
-                "external_response_text": response_text,
-            },
-            "$push": {
-                "status_history": {
-                    "status": "success",
-                    "at_bkk": now_bkk_ok.isoformat(),
-                    "at_utc": now_utc_ok.isoformat(),
-                    "date_bkk": date_bkk_ok,
-                    "by": "deposit_api",
-                }
-            },
-        },
-    )
-
-    transaction_data = {
-        "name": reason,
-        "amount": amount_int,
-        "receiptAttached": False,
-        "tags": [],
-        "type": "income",  # แยกจากเบิกเงินที่เป็น expense
-        "selectedStorage": location_text,
-        "selectedDate": date_bkk_ok,
-        "transaction_at_bkk": now_bkk_ok.isoformat(),
-        "transaction_at_utc": now_utc_ok.isoformat(),
-        "transaction_date_bkk": date_bkk_ok,
-        "direction": "deposit",
-        "channel": "liff",
-        "user_id": user_id,
+@approved_requests_bp.route("/money/api/deposit-status", methods=["GET"])
+def api_deposit_status():
+    deposit_request_id = request.args.get("id") or request.args.get("deposit_request_id")
+    if not deposit_request_id:
+        return jsonify({"status": "error", "message": "missing deposit_request_id"}), 400
+    doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_request_id}, {"_id": 0})
+    if not doc:
+        return jsonify({"status": "error", "message": "not found"}), 404
+    resp = {
+        "deposit_request_id": doc.get("deposit_request_id"),
+        "status": doc.get("status"),
+        "error_message": doc.get("error_message"),
+        "created_at_bkk": doc.get("created_at_bkk"),
+        "updated_at_bkk": doc.get("updated_at_bkk"),
+        "location": doc.get("location"),
+        "amount": doc.get("amount"),
     }
-
-    try:
-        result = transactions_collection.insert_one(transaction_data)
-        logger.info(f"✅ [DEPOSIT] บันทึกธุรกรรมฝากเงิน ID: {result.inserted_id} สำเร็จ")
-    except Exception as e:
-        logger.error(f"❌ [DEPOSIT] บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e)}")
-        # ไม่ต้องถือว่าเป็น error ต่อหน้าผู้ใช้ เพราะตัวฝากเงินจริงสำเร็จแล้ว
-
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "data": resp})
