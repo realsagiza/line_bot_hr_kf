@@ -6,7 +6,7 @@ import requests
 from flask import Blueprint, render_template, jsonify, redirect, url_for, request
 from db import requests_collection, deposit_requests_collection, transactions_collection
 from time_utils import now_bangkok, now_bangkok_and_utc
-from http_utils import build_correlation_headers
+from http_utils import build_correlation_headers, get_rest_api_ci_base_for_branch
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -144,8 +144,8 @@ def approve_request(request_id):
 
     # ✅ กรณีสถานที่รับเงินเป็น "โนนิโกะ"
     if location == "โนนิโกะ":
-        from config import Config
-        api_url = f"{Config.REST_API_CI_BASE}/bot/withdraw"
+        base = get_rest_api_ci_base_for_branch("NONIKO")
+        api_url = f"{base}/bot/withdraw"
         payload = {
             "amount": int(amount),  # ✅ แปลงเป็น int
             "machine_id": "line_bot_audit_kf",
@@ -249,8 +249,8 @@ def approve_request(request_id):
                 logger.error(f"❌ บันทึก machine_error ไม่สำเร็จ: {str(e2)}")
             return jsonify({"status": "error", "message": "ตู้ถอนเงินยังไม่ตอบรับ กรุณาตรวจสอบสถานะอีกครั้ง"}), 502
     elif location == "คลังห้องเย็น":
-        from config import Config
-        api_url = f"{Config.REST_API_CI_BASE}/bot/withdraw"
+        base = get_rest_api_ci_base_for_branch("Klangfrozen")
+        api_url = f"{base}/bot/withdraw"
         payload = {
             "amount": int(amount),  # ✅ แปลงเป็น int
             "machine_id": "line_bot_audit_kf",
@@ -548,12 +548,13 @@ def api_deposit_request():
         reason = reason_code
 
     # กำหนด endpoint และ branch_id ตามสาขา (ตามโค้ดเดิมใน handlers)
-    from config import Config
     if location_text == "โนนิโกะ":
-        api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
+        base = get_rest_api_ci_base_for_branch("NONIKO")
+        api_url = f"{base}/bot/deposit"
         branch_id = "NONIKO"
     else:  # คลังห้องเย็น
-        api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
+        base = get_rest_api_ci_base_for_branch("Klangfrozen")
+        api_url = f"{base}/bot/deposit"
         branch_id = "Klangfrozen"
 
     payload = {

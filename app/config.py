@@ -10,3 +10,6 @@ class Config:
     LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
     REST_API_CI_BASE = os.getenv("REST_API_CI_BASE", "http://localhost:5000")
+    # Optional per-branch overrides
+    REST_API_CI_BASE_NONIKO = os.getenv("REST_API_CI_BASE_NONIKO")
+    REST_API_CI_BASE_KLANGFROZEN = os.getenv("REST_API_CI_BASE_KLANGFROZEN")

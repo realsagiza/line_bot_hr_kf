@@ -1,5 +1,6 @@
 import uuid
 from typing import Dict, Tuple, Optional
+from config import Config
 
 
 def build_correlation_headers(
@@ -34,5 +35,18 @@ def build_correlation_headers(
         "request_id": request_id,
         "sale_id": str(sale_id),
     }
+
+
+def get_rest_api_ci_base_for_branch(branch_id: Optional[str]) -> str:
+    """
+    Resolve REST_API_CI base URL per branch when overrides are configured.
+    Falls back to Config.REST_API_CI_BASE.
+    """
+    b = (branch_id or "").strip().lower()
+    if b in ("noniko", "branch_noniko"):
+        return Config.REST_API_CI_BASE_NONIKO or Config.REST_API_CI_BASE
+    if b in ("klangfrozen", "klanfrozen", "cold_storage", "coldstorage"):
+        return Config.REST_API_CI_BASE_KLANGFROZEN or Config.REST_API_CI_BASE
+    return Config.REST_API_CI_BASE
 
 

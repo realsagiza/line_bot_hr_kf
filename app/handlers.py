@@ -6,7 +6,7 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction
 )
 from config import Config
-from http_utils import build_correlation_headers
+from http_utils import build_correlation_headers, get_rest_api_ci_base_for_branch
 from db import requests_collection  # ✅ ใช้ connection pool
 from time_utils import now_bangkok_and_utc
 
@@ -175,8 +175,7 @@ def handle_postback(event, line_bot_api):
                 f"📍 สถานที่รับเงิน: {location}\n"
                 f"🔄 ฝากเงินทอนสำเร็จแล้ว"
             )
-            from config import Config
-            api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
+            api_url = f"{get_rest_api_ci_base_for_branch('NONIKO')}/bot/deposit"
             payload = {
                 "amount": int(amount),  # ✅ แปลงเป็น int
                 "machine_id": "line_bot_audit_kf",
@@ -196,8 +195,7 @@ def handle_postback(event, line_bot_api):
                 f"📍 สถานที่รับเงิน: {location}\n"
                 f"🔄 ฝากเงินทอนสำเร็จแล้ว"
             )
-            from config import Config
-            api_url = f"{Config.REST_API_CI_BASE}/bot/deposit"
+            api_url = f"{get_rest_api_ci_base_for_branch('Klangfrozen')}/bot/deposit"
             payload = {
                 "amount": int(amount),  # ✅ แปลงเป็น int
                 "machine_id": "line_bot_audit_kf",
