@@ -231,10 +231,10 @@
 
     <div class="card" id="request-card">
       <div class="section-title" style="margin-top:0;">ฟอร์มขอเบิกเงินสด</div>
-      <form id="withdraw-form">
+      <form id="withdraw-form" novalidate>
         <div class="field">
           <label for="amount">จำนวนเงิน (บาท)</label>
-          <input type="number" id="amount" min="1" step="1" required placeholder="เช่น 40, 80, 100">
+          <input type="text" id="amount" inputmode="numeric" required placeholder="เช่น 40, 80, 100" autocomplete="off">
         </div>
 
         <div class="field">
@@ -273,10 +273,10 @@
 
     <div class="card" id="deposit-card">
       <div class="section-title" style="margin-top:0;">ฟอร์มฝากเงินสด</div>
-      <form id="deposit-form">
+      <form id="deposit-form" novalidate>
         <div class="field">
           <label for="deposit-amount">จำนวนเงิน (บาท)</label>
-          <input type="number" id="deposit-amount" min="1" step="1" required placeholder="เช่น 100, 500">
+          <input type="text" id="deposit-amount" inputmode="numeric" required placeholder="เช่น 100, 500" autocomplete="off">
         </div>
 
         <div class="field">
@@ -310,6 +310,37 @@
   </div>
 
   <script>
+    // แปลงเลขไทยเป็นเลขอารบิก และลบอักขระที่ไม่ใช่ตัวเลข
+    function sanitizeNumberInputValue(raw) {
+      const thaiToArabicMap = {
+        '๐': '0','๑': '1','๒': '2','๓': '3','๔': '4',
+        '๕': '5','๖': '6','๗': '7','๘': '8','๙': '9'
+      };
+      let normalized = (raw || '').toString();
+      normalized = normalized.replace(/[๐-๙]/g, ch => thaiToArabicMap[ch] || '');
+      normalized = normalized.replace(/[,\s]/g, ''); // remove commas and spaces
+      normalized = normalized.replace(/[^0-9]/g, ''); // keep digits only
+      return normalized;
+    }
+
+    function attachNumericSanitizer(elementId) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      el.addEventListener('input', () => {
+        const caret = el.selectionStart;
+        const before = el.value;
+        const after = sanitizeNumberInputValue(before);
+        if (before !== after) {
+          el.value = after;
+          // best effort to keep caret near end
+          el.setSelectionRange(after.length, after.length);
+        }
+      });
+      el.addEventListener('blur', () => {
+        el.value = sanitizeNumberInputValue(el.value);
+      });
+    }
+
     // TODO: ย้ายไป config ฝั่ง server ในอนาคต
     const ALLOWED_APPROVER_IDS = [
       "Ua66fafa180c3b007b9d5d73c2c427f16", // ตาม
@@ -545,6 +576,9 @@
       initLiff();
       document.getElementById('withdraw-form').addEventListener('submit', submitWithdrawForm);
       document.getElementById('deposit-form').addEventListener('submit', submitDepositForm);
+      // ป้องกัน error จาก keyboard ไทย/สัญลักษณ์ โดย sanitize ตั้งแต่พิมพ์
+      attachNumericSanitizer('amount');
+      attachNumericSanitizer('deposit-amount');
     });
   </script>
 </body>

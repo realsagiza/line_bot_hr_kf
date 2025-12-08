@@ -584,6 +584,7 @@ def api_deposit_request():
         "branch_id": branch_id,
     }
     # Use deposit_request_id as sale_id for downstream correlation
+    deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
     headers, meta = build_correlation_headers(sale_id=deposit_request_id)
     trace_id = meta["trace_id"]
     request_header_id = meta["request_id"]
@@ -591,8 +592,6 @@ def api_deposit_request():
     # สร้าง log คำขอฝากเงินก่อน (pending)
     now_bkk, now_utc = now_bangkok_and_utc()
     date_bkk = now_bkk.date().isoformat()
-
-    deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
 
     deposit_doc = {
         "deposit_request_id": deposit_request_id,
