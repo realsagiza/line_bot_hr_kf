@@ -158,7 +158,8 @@ def approve_request(request_id):
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+            # Withdraw can take longer; allow up to 60s
+            response = requests.post(api_url, json=payload, headers=headers, timeout=60)
 
             # ✅ Log response status และ body
             logger.info(f"📤 API Response Status: {response.status_code}")
@@ -263,7 +264,8 @@ def approve_request(request_id):
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+            # Withdraw can take longer; allow up to 60s
+            response = requests.post(api_url, json=payload, headers=headers, timeout=60)
 
             # ✅ Log response status และ body
             logger.info(f"📤 API Response Status: {response.status_code}")
