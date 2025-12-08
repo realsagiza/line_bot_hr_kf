@@ -49,7 +49,7 @@ def request_status():
 
     # คำขอเบิกเงิน (withdraw) จาก collection withdraw_requests
     query = {
-        "status": {"$in": ["approved", "rejected"]},
+        "status": {"$in": ["approved", "rejected", "awaiting_machine"]},
         "created_date_bkk": selected_date,
     }
 
@@ -102,10 +102,44 @@ def approve_request(request_id):
     amount = request_data.get("amount")
     location = request_data.get("location")
     reason = request_data.get("reason", "")  # ✅ ดึงข้อมูลเหตุผลจากคำขอ
+    current_status = request_data.get("status")
 
     if not amount or not location:
         logger.error("❌ ข้อมูลคำขอไม่สมบูรณ์")
         return jsonify({"status": "error", "message": "ข้อมูลคำขอไม่สมบูรณ์"}), 400
+
+    # ✅ อนุญาตให้อนุมัติได้เฉพาะสถานะ pending เท่านั้น ป้องกันการกดย้ำ
+    if current_status != "pending":
+        logger.warning(f"⚠️ คำขอ {request_id} มีสถานะ {current_status} อยู่แล้ว ข้ามการยิง API ซ้ำ")
+        return redirect("/money/approved-requests")
+
+    # ✅ ตั้งสถานะเป็น "รอการตอบรับจากเครื่องถอนเงิน" ทันทีที่กดอนุมัติ
+    now_bkk, now_utc = now_bangkok_and_utc()
+    date_bkk = now_bkk.date().isoformat()
+    try:
+        requests_collection.update_one(
+            {"request_id": request_id},
+            {
+                "$set": {
+                    "status": "awaiting_machine",
+                    "updated_at_bkk": now_bkk.isoformat(),
+                    "updated_at_utc": now_utc.isoformat(),
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "awaiting_machine",
+                        "at_bkk": now_bkk.isoformat(),
+                        "at_utc": now_utc.isoformat(),
+                        "date_bkk": date_bkk,
+                        "by": "approver_ui",
+                    }
+                },
+            },
+        )
+        logger.info(f"⏳ ตั้งสถานะคำขอ {request_id} เป็น awaiting_machine แล้ว")
+    except Exception as e:
+        logger.error(f"❌ อัปเดตสถานะ awaiting_machine ไม่สำเร็จ: {str(e)}")
+        return jsonify({"status": "error", "message": "อัปเดตสถานะไม่สำเร็จ"}), 500
 
     # ✅ กรณีสถานที่รับเงินเป็น "โนนิโกะ"
     if location == "โนนิโกะ":
@@ -115,14 +149,18 @@ def approve_request(request_id):
             "machine_id": "line_bot_audit_kf",
             "branch_id": "NONIKO"
         }
+        trace_id = f"t-{uuid.uuid4().hex[:8]}"
+        request_header_id = f"r-{uuid.uuid4().hex[:8]}"
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "X-Trace-Id": trace_id,
+            "X-Request-Id": request_header_id,
         }
 
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            response = requests.post(api_url, json=payload, headers=headers, timeout=15)
 
             # ✅ Log response status และ body
             logger.info(f"📤 API Response Status: {response.status_code}")
@@ -147,6 +185,12 @@ def approve_request(request_id):
                             "status": "approved",
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
+                            "machine_response": {
+                                "status_code": response.status_code,
+                                "body": response_data,
+                                "trace_id": trace_id,
+                                "request_id": request_header_id,
+                            },
                         },
                         "$push": {
                             "status_history": {
@@ -173,6 +217,8 @@ def approve_request(request_id):
                     "transaction_at_utc": now_utc.isoformat(),
                     "transaction_date_bkk": date_bkk,
                     "request_id": request_id,
+                    "machine_trace_id": trace_id,
+                    "machine_request_id": request_header_id,
                 }
 
                 # บันทึกข้อมูลลงฐานข้อมูล
@@ -183,8 +229,27 @@ def approve_request(request_id):
                 return redirect("/money/approved-requests")
 
         except requests.exceptions.RequestException as e:
+            # เก็บ error ลงคำขอ แต่คงสถานะ awaiting_machine เพื่อให้ตามงานต่อได้
             logger.error(f"❌ API Error: {str(e)}")
-            return jsonify({"status": "error", "message": f"API Error: {str(e)}"}), 500
+            try:
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "machine_error": str(e),
+                            "machine_last_attempt_at_bkk": now_bkk.isoformat(),
+                            "machine_last_attempt_at_utc": now_utc.isoformat(),
+                            "machine_request": {
+                                "api_url": api_url,
+                                "payload": payload,
+                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id},
+                            },
+                        }
+                    },
+                )
+            except Exception as e2:
+                logger.error(f"❌ บันทึก machine_error ไม่สำเร็จ: {str(e2)}")
+            return jsonify({"status": "error", "message": "ตู้ถอนเงินยังไม่ตอบรับ กรุณาตรวจสอบสถานะอีกครั้ง"}), 502
     elif location == "คลังห้องเย็น":
         api_url = "http://10.0.0.15:5050/api/withdraw"
         payload = {
@@ -192,14 +257,18 @@ def approve_request(request_id):
             "machine_id": "line_bot_audit_kf",
             "branch_id": "Klanfrozen"
         }
+        trace_id = f"t-{uuid.uuid4().hex[:8]}"
+        request_header_id = f"r-{uuid.uuid4().hex[:8]}"
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "X-Trace-Id": trace_id,
+            "X-Request-Id": request_header_id,
         }
 
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            response = requests.post(api_url, json=payload, headers=headers, timeout=15)
 
             # ✅ Log response status และ body
             logger.info(f"📤 API Response Status: {response.status_code}")
@@ -224,6 +293,12 @@ def approve_request(request_id):
                             "status": "approved",
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
+                            "machine_response": {
+                                "status_code": response.status_code,
+                                "body": response_data,
+                                "trace_id": trace_id,
+                                "request_id": request_header_id,
+                            },
                         },
                         "$push": {
                             "status_history": {
@@ -250,6 +325,8 @@ def approve_request(request_id):
                     "transaction_at_utc": now_utc.isoformat(),
                     "transaction_date_bkk": date_bkk,
                     "request_id": request_id,
+                    "machine_trace_id": trace_id,
+                    "machine_request_id": request_header_id,
                 }
 
                 # บันทึกข้อมูลลงฐานข้อมูล
@@ -260,8 +337,27 @@ def approve_request(request_id):
                 return redirect("/money/approved-requests")
 
         except requests.exceptions.RequestException as e:
+            # เก็บ error ลงคำขอ แต่คงสถานะ awaiting_machine เพื่อให้ตามงานต่อได้
             logger.error(f"❌ API Error: {str(e)}")
-            return jsonify({"status": "error", "message": f"API Error: {str(e)}"}), 500
+            try:
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "machine_error": str(e),
+                            "machine_last_attempt_at_bkk": now_bkk.isoformat(),
+                            "machine_last_attempt_at_utc": now_utc.isoformat(),
+                            "machine_request": {
+                                "api_url": api_url,
+                                "payload": payload,
+                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id},
+                            },
+                        }
+                    },
+                )
+            except Exception as e2:
+                logger.error(f"❌ บันทึก machine_error ไม่สำเร็จ: {str(e2)}")
+            return jsonify({"status": "error", "message": "ตู้ถอนเงินยังไม่ตอบรับ กรุณาตรวจสอบสถานะอีกครั้ง"}), 502
 
 @approved_requests_bp.route("/money/reject/<request_id>", methods=["POST"])
 def reject_request(request_id):
