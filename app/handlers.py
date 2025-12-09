@@ -7,7 +7,7 @@ from linebot.models import (
 )
 from config import Config
 from http_utils import build_correlation_headers, get_rest_api_ci_base_for_branch
-from db import requests_collection  # ✅ ใช้ connection pool
+from db import requests_collection, deposit_requests_collection, transactions_collection  # ✅ ใช้ connection pool
 from time_utils import now_bangkok_and_utc
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
@@ -168,42 +168,323 @@ def handle_postback(event, line_bot_api):
         state = user_session[user_id]["state"]
         logger.info(f"❌ สถานะ {state} ตอนนี้")
         if  state == "waiting_for_location_deposit" and location == "noniko":
-            text = (
-                f"✅ คำขอฝากเงิน\n"
-                f"💰 จำนวนเงิน: {amount} บาท\n"
-                f"📌 เหตุผล: {reson}\n"
-                f"📍 สถานที่รับเงิน: {location}\n"
-                f"🔄 ฝากเงินทอนสำเร็จแล้ว"
-            )
+            # แม็ปเหตุผลให้เป็นข้อความอ่านง่าย
+            if reson == "change":
+                reason_text = "เงินทอน"
+            elif reson == "daily_sales":
+                reason_text = "ฝากยอดขาย"
+            else:
+                reason_text = reson if isinstance(reson, str) else str(reson)
+            
+            location_text = "โนนิโกะ"
+            branch_id = "NONIKO"
             api_url = f"{get_rest_api_ci_base_for_branch('NONIKO')}/bot/deposit"
             payload = {
                 "amount": int(amount),  # ✅ แปลงเป็น int
                 "machine_id": "line_bot_audit_kf",
-                "branch_id": "NONIKO"
+                "branch_id": branch_id
             }
-            # Generate correlation headers (no pre-existing sale id for this quick flow)
-            headers, _meta = build_correlation_headers()
-
-            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            
+            # สร้าง deposit_request_id และ correlation headers
+            deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
+            headers, meta = build_correlation_headers(sale_id=deposit_request_id)
+            trace_id = meta["trace_id"]
+            request_header_id = meta["request_id"]
+            
+            # บันทึกคำขอฝากเงินลง MongoDB ก่อน
+            now_bkk, now_utc = now_bangkok_and_utc()
+            date_bkk = now_bkk.date().isoformat()
+            
+            deposit_doc = {
+                "deposit_request_id": deposit_request_id,
+                "user_id": user_id,
+                "amount": int(amount),
+                "reason_code": reson,
+                "reason": reason_text,
+                "location": location_text,
+                "branch_id": branch_id,
+                "api_url": api_url,
+                "payload": payload,
+                "trace_id": trace_id,
+                "request_header_id": request_header_id,
+                "status": "pending",
+                "created_at_bkk": now_bkk.isoformat(),
+                "created_at_utc": now_utc.isoformat(),
+                "created_date_bkk": date_bkk,
+                "sale_id_for_machine": deposit_request_id,
+                "channel": "line_bot",
+                "status_history": [
+                    {
+                        "status": "pending",
+                        "at_bkk": now_bkk.isoformat(),
+                        "at_utc": now_utc.isoformat(),
+                        "date_bkk": date_bkk,
+                        "by": user_id,
+                    }
+                ],
+            }
+            
+            try:
+                deposit_requests_collection.insert_one(deposit_doc)
+                logger.info(f"✅ [DEPOSIT] บันทึกคำขอฝากเงิน (ดนนิโกะ): {deposit_request_id}")
+            except Exception as e:
+                logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
+            
+            # ยิง API ไปยัง REST_API_CI
+            try:
+                response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+                response.raise_for_status()
+                
+                # อัปเดตสถานะเป็น success และบันทึกธุรกรรม
+                now_bkk_success, now_utc_success = now_bangkok_and_utc()
+                date_bkk_success = now_bkk_success.date().isoformat()
+                
+                # อัปเดตสถานะใน deposit_requests_collection
+                deposit_requests_collection.update_one(
+                    {"deposit_request_id": deposit_request_id},
+                    {
+                        "$set": {
+                            "status": "success",
+                            "updated_at_bkk": now_bkk_success.isoformat(),
+                            "updated_at_utc": now_utc_success.isoformat(),
+                            "external_response_text": response.text,
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "success",
+                                "at_bkk": now_bkk_success.isoformat(),
+                                "at_utc": now_utc_success.isoformat(),
+                                "date_bkk": date_bkk_success,
+                                "by": "line_bot_handler",
+                            }
+                        },
+                    },
+                )
+                
+                # บันทึกธุรกรรมลง transactions_collection
+                transaction_data = {
+                    "name": reason_text,
+                    "amount": int(amount),
+                    "receiptAttached": False,
+                    "tags": [],
+                    "type": "income",
+                    "selectedStorage": location_text,
+                    "selectedDate": date_bkk_success,
+                    "transaction_at_bkk": now_bkk_success.isoformat(),
+                    "transaction_at_utc": now_utc_success.isoformat(),
+                    "transaction_date_bkk": date_bkk_success,
+                    "direction": "deposit",
+                    "channel": "line_bot",
+                    "user_id": user_id,
+                    "deposit_request_id": deposit_request_id,
+                }
+                
+                try:
+                    transactions_collection.insert_one(transaction_data)
+                    logger.info(f"✅ [DEPOSIT] บันทึกธุรกรรมฝากเงิน (ดนนิโกะ) สำเร็จ: {deposit_request_id}")
+                except Exception as e_tx:
+                    logger.error(f"❌ [DEPOSIT] บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e_tx)}")
+                
+                text = (
+                    f"✅ คำขอฝากเงิน\n"
+                    f"💰 จำนวนเงิน: {amount} บาท\n"
+                    f"📌 เหตุผล: {reason_text}\n"
+                    f"📍 สถานที่: {location_text}\n"
+                    f"🔄 ฝากเงินสำเร็จแล้ว"
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ [DEPOSIT] API Error (ดนนิโกะ): {str(e)}")
+                # อัปเดตสถานะเป็น error
+                now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                date_bkk_err = now_bkk_err.date().isoformat()
+                deposit_requests_collection.update_one(
+                    {"deposit_request_id": deposit_request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "error_message": str(e),
+                            "updated_at_bkk": now_bkk_err.isoformat(),
+                            "updated_at_utc": now_utc_err.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk_err.isoformat(),
+                                "at_utc": now_utc_err.isoformat(),
+                                "date_bkk": date_bkk_err,
+                                "by": "line_bot_handler",
+                            }
+                        },
+                    },
+                )
+                text = (
+                    f"⚠️ คำขอฝากเงิน\n"
+                    f"💰 จำนวนเงิน: {amount} บาท\n"
+                    f"📌 เหตุผล: {reason_text}\n"
+                    f"📍 สถานที่: {location_text}\n"
+                    f"❌ เกิดข้อผิดพลาดในการฝากเงิน กรุณาลองใหม่อีกครั้ง"
+                )
+            
             reset_state(user_id)
             reply_message = TextSendMessage(text=text)
         elif  state == "waiting_for_location_deposit" and location == "cold_storage":
-            text = (
-                f"✅ คำขอฝากเงิน\n"
-                f"💰 จำนวนเงิน: {amount} บาท\n"
-                f"📌 เหตุผล: {reson}\n"
-                f"📍 สถานที่รับเงิน: {location}\n"
-                f"🔄 ฝากเงินทอนสำเร็จแล้ว"
-            )
+            # แม็ปเหตุผลให้เป็นข้อความอ่านง่าย
+            if reson == "change":
+                reason_text = "เงินทอน"
+            elif reson == "daily_sales":
+                reason_text = "ฝากยอดขาย"
+            else:
+                reason_text = reson if isinstance(reson, str) else str(reson)
+            
+            location_text = "คลังห้องเย็น"
+            branch_id = "Klangfrozen"
             api_url = f"{get_rest_api_ci_base_for_branch('Klangfrozen')}/bot/deposit"
             payload = {
                 "amount": int(amount),  # ✅ แปลงเป็น int
                 "machine_id": "line_bot_audit_kf",
-                "branch_id": "Klangfrozen"
+                "branch_id": branch_id
             }
-            headers, _meta = build_correlation_headers()
-
-            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            
+            # สร้าง deposit_request_id และ correlation headers
+            deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
+            headers, meta = build_correlation_headers(sale_id=deposit_request_id)
+            trace_id = meta["trace_id"]
+            request_header_id = meta["request_id"]
+            
+            # บันทึกคำขอฝากเงินลง MongoDB ก่อน
+            now_bkk, now_utc = now_bangkok_and_utc()
+            date_bkk = now_bkk.date().isoformat()
+            
+            deposit_doc = {
+                "deposit_request_id": deposit_request_id,
+                "user_id": user_id,
+                "amount": int(amount),
+                "reason_code": reson,
+                "reason": reason_text,
+                "location": location_text,
+                "branch_id": branch_id,
+                "api_url": api_url,
+                "payload": payload,
+                "trace_id": trace_id,
+                "request_header_id": request_header_id,
+                "status": "pending",
+                "created_at_bkk": now_bkk.isoformat(),
+                "created_at_utc": now_utc.isoformat(),
+                "created_date_bkk": date_bkk,
+                "sale_id_for_machine": deposit_request_id,
+                "channel": "line_bot",
+                "status_history": [
+                    {
+                        "status": "pending",
+                        "at_bkk": now_bkk.isoformat(),
+                        "at_utc": now_utc.isoformat(),
+                        "date_bkk": date_bkk,
+                        "by": user_id,
+                    }
+                ],
+            }
+            
+            try:
+                deposit_requests_collection.insert_one(deposit_doc)
+                logger.info(f"✅ [DEPOSIT] บันทึกคำขอฝากเงิน (คลังห้องเย็น): {deposit_request_id}")
+            except Exception as e:
+                logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
+            
+            # ยิง API ไปยัง REST_API_CI
+            try:
+                response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+                response.raise_for_status()
+                
+                # อัปเดตสถานะเป็น success และบันทึกธุรกรรม
+                now_bkk_success, now_utc_success = now_bangkok_and_utc()
+                date_bkk_success = now_bkk_success.date().isoformat()
+                
+                # อัปเดตสถานะใน deposit_requests_collection
+                deposit_requests_collection.update_one(
+                    {"deposit_request_id": deposit_request_id},
+                    {
+                        "$set": {
+                            "status": "success",
+                            "updated_at_bkk": now_bkk_success.isoformat(),
+                            "updated_at_utc": now_utc_success.isoformat(),
+                            "external_response_text": response.text,
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "success",
+                                "at_bkk": now_bkk_success.isoformat(),
+                                "at_utc": now_utc_success.isoformat(),
+                                "date_bkk": date_bkk_success,
+                                "by": "line_bot_handler",
+                            }
+                        },
+                    },
+                )
+                
+                # บันทึกธุรกรรมลง transactions_collection
+                transaction_data = {
+                    "name": reason_text,
+                    "amount": int(amount),
+                    "receiptAttached": False,
+                    "tags": [],
+                    "type": "income",
+                    "selectedStorage": location_text,
+                    "selectedDate": date_bkk_success,
+                    "transaction_at_bkk": now_bkk_success.isoformat(),
+                    "transaction_at_utc": now_utc_success.isoformat(),
+                    "transaction_date_bkk": date_bkk_success,
+                    "direction": "deposit",
+                    "channel": "line_bot",
+                    "user_id": user_id,
+                    "deposit_request_id": deposit_request_id,
+                }
+                
+                try:
+                    transactions_collection.insert_one(transaction_data)
+                    logger.info(f"✅ [DEPOSIT] บันทึกธุรกรรมฝากเงิน (คลังห้องเย็น) สำเร็จ: {deposit_request_id}")
+                except Exception as e_tx:
+                    logger.error(f"❌ [DEPOSIT] บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e_tx)}")
+                
+                text = (
+                    f"✅ คำขอฝากเงิน\n"
+                    f"💰 จำนวนเงิน: {amount} บาท\n"
+                    f"📌 เหตุผล: {reason_text}\n"
+                    f"📍 สถานที่: {location_text}\n"
+                    f"🔄 ฝากเงินสำเร็จแล้ว"
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ [DEPOSIT] API Error (คลังห้องเย็น): {str(e)}")
+                # อัปเดตสถานะเป็น error
+                now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                date_bkk_err = now_bkk_err.date().isoformat()
+                deposit_requests_collection.update_one(
+                    {"deposit_request_id": deposit_request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "error_message": str(e),
+                            "updated_at_bkk": now_bkk_err.isoformat(),
+                            "updated_at_utc": now_utc_err.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk_err.isoformat(),
+                                "at_utc": now_utc_err.isoformat(),
+                                "date_bkk": date_bkk_err,
+                                "by": "line_bot_handler",
+                            }
+                        },
+                    },
+                )
+                text = (
+                    f"⚠️ คำขอฝากเงิน\n"
+                    f"💰 จำนวนเงิน: {amount} บาท\n"
+                    f"📌 เหตุผล: {reason_text}\n"
+                    f"📍 สถานที่: {location_text}\n"
+                    f"❌ เกิดข้อผิดพลาดในการฝากเงิน กรุณาลองใหม่อีกครั้ง"
+                )
+            
             reset_state(user_id)
             reply_message = TextSendMessage(text=text)
         elif state == "waiting_for_location": 
