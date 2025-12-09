@@ -230,72 +230,56 @@ def handle_postback(event, line_bot_api):
             except Exception as e:
                 logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
             
-            # ยิง API ไปยัง REST_API_CI
+            # ยิง API ไปยัง REST_API_CI (fire-and-forget mode)
             try:
-                # Use shorter timeout since we're in fire-and-forget mode - just send request
+                # Fire-and-forget: send request without waiting for response
                 # Status will be checked via polling
-                response = requests.post(api_url, json=payload, headers=headers, timeout=10)
-                response.raise_for_status()
-                
-                # อัปเดตสถานะเป็น success และบันทึกธุรกรรม
-                now_bkk_success, now_utc_success = now_bangkok_and_utc()
-                date_bkk_success = now_bkk_success.date().isoformat()
-                
-                # อัปเดตสถานะใน deposit_requests_collection
-                deposit_requests_collection.update_one(
-                    {"deposit_request_id": deposit_request_id},
-                    {
-                        "$set": {
-                            "status": "success",
-                            "updated_at_bkk": now_bkk_success.isoformat(),
-                            "updated_at_utc": now_utc_success.isoformat(),
-                            "external_response_text": response.text,
-                        },
-                        "$push": {
-                            "status_history": {
-                                "status": "success",
-                                "at_bkk": now_bkk_success.isoformat(),
-                                "at_utc": now_utc_success.isoformat(),
-                                "date_bkk": date_bkk_success,
-                                "by": "line_bot_handler",
-                            }
-                        },
-                    },
-                )
-                
-                # บันทึกธุรกรรมลง transactions_collection
-                transaction_data = {
-                    "name": reason_text,
-                    "amount": int(amount),
-                    "receiptAttached": False,
-                    "tags": [],
-                    "type": "income",
-                    "selectedStorage": location_text,
-                    "selectedDate": date_bkk_success,
-                    "transaction_at_bkk": now_bkk_success.isoformat(),
-                    "transaction_at_utc": now_utc_success.isoformat(),
-                    "transaction_date_bkk": date_bkk_success,
-                    "direction": "deposit",
-                    "channel": "line_bot",
-                    "user_id": user_id,
-                    "deposit_request_id": deposit_request_id,
-                }
-                
                 try:
-                    transactions_collection.insert_one(transaction_data)
-                    logger.info(f"✅ [DEPOSIT] บันทึกธุรกรรมฝากเงิน (ดนนิโกะ) สำเร็จ: {deposit_request_id}")
-                except Exception as e_tx:
-                    logger.error(f"❌ [DEPOSIT] บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e_tx)}")
-                
-                text = (
-                    f"✅ คำขอฝากเงิน\n"
-                    f"💰 จำนวนเงิน: {amount} บาท\n"
-                    f"📌 เหตุผล: {reason_text}\n"
-                    f"📍 สถานที่: {location_text}\n"
-                    f"🔄 ฝากเงินสำเร็จแล้ว"
-                )
-            except requests.exceptions.RequestException as e:
-                logger.error(f"❌ [DEPOSIT] API Error (ดนนิโกะ): {str(e)}")
+                    requests.post(api_url, json=payload, headers=headers, timeout=10)
+                    logger.info(f"📤 [DEPOSIT] Request sent successfully (fire-and-forget)")
+                except Exception as e_send:
+                    logger.error(f"📤 [DEPOSIT] Failed to send request: {str(e_send)}")
+                    # อัปเดตสถานะเป็น error
+                    now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                    deposit_requests_collection.update_one(
+                        {"deposit_request_id": deposit_request_id},
+                        {
+                            "$set": {
+                                "status": "error",
+                                "error_message": f"Failed to send request: {str(e_send)}",
+                                "updated_at_bkk": now_bkk_err.isoformat(),
+                                "updated_at_utc": now_utc_err.isoformat(),
+                            },
+                            "$push": {
+                                "status_history": {
+                                    "status": "error",
+                                    "at_bkk": now_bkk_err.isoformat(),
+                                    "at_utc": now_utc_err.isoformat(),
+                                    "date_bkk": now_bkk_err.date().isoformat(),
+                                    "by": "line_bot_handler",
+                                }
+                            },
+                        },
+                    )
+                    text = (
+                        f"❌ คำขอฝากเงิน\n"
+                        f"💰 จำนวนเงิน: {amount} บาท\n"
+                        f"📌 เหตุผล: {reason_text}\n"
+                        f"📍 สถานที่: {location_text}\n"
+                        f"⚠️ เกิดข้อผิดพลาดในการส่งคำขอ"
+                    )
+                else:
+                    # In fire-and-forget mode, we don't wait for response
+                    # Status will be checked via polling
+                    text = (
+                        f"✅ คำขอฝากเงิน\n"
+                        f"💰 จำนวนเงิน: {amount} บาท\n"
+                        f"📌 เหตุผล: {reason_text}\n"
+                        f"📍 สถานที่: {location_text}\n"
+                        f"🔄 กำลังดำเนินการ..."
+                    )
+            except Exception as e:
+                logger.error(f"❌ [DEPOSIT] Error (ดนนิโกะ): {str(e)}")
                 # อัปเดตสถานะเป็น error
                 now_bkk_err, now_utc_err = now_bangkok_and_utc()
                 date_bkk_err = now_bkk_err.date().isoformat()
@@ -392,72 +376,56 @@ def handle_postback(event, line_bot_api):
             except Exception as e:
                 logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
             
-            # ยิง API ไปยัง REST_API_CI
+            # ยิง API ไปยัง REST_API_CI (fire-and-forget mode)
             try:
-                # Use shorter timeout since we're in fire-and-forget mode - just send request
+                # Fire-and-forget: send request without waiting for response
                 # Status will be checked via polling
-                response = requests.post(api_url, json=payload, headers=headers, timeout=10)
-                response.raise_for_status()
-                
-                # อัปเดตสถานะเป็น success และบันทึกธุรกรรม
-                now_bkk_success, now_utc_success = now_bangkok_and_utc()
-                date_bkk_success = now_bkk_success.date().isoformat()
-                
-                # อัปเดตสถานะใน deposit_requests_collection
-                deposit_requests_collection.update_one(
-                    {"deposit_request_id": deposit_request_id},
-                    {
-                        "$set": {
-                            "status": "success",
-                            "updated_at_bkk": now_bkk_success.isoformat(),
-                            "updated_at_utc": now_utc_success.isoformat(),
-                            "external_response_text": response.text,
-                        },
-                        "$push": {
-                            "status_history": {
-                                "status": "success",
-                                "at_bkk": now_bkk_success.isoformat(),
-                                "at_utc": now_utc_success.isoformat(),
-                                "date_bkk": date_bkk_success,
-                                "by": "line_bot_handler",
-                            }
-                        },
-                    },
-                )
-                
-                # บันทึกธุรกรรมลง transactions_collection
-                transaction_data = {
-                    "name": reason_text,
-                    "amount": int(amount),
-                    "receiptAttached": False,
-                    "tags": [],
-                    "type": "income",
-                    "selectedStorage": location_text,
-                    "selectedDate": date_bkk_success,
-                    "transaction_at_bkk": now_bkk_success.isoformat(),
-                    "transaction_at_utc": now_utc_success.isoformat(),
-                    "transaction_date_bkk": date_bkk_success,
-                    "direction": "deposit",
-                    "channel": "line_bot",
-                    "user_id": user_id,
-                    "deposit_request_id": deposit_request_id,
-                }
-                
                 try:
-                    transactions_collection.insert_one(transaction_data)
-                    logger.info(f"✅ [DEPOSIT] บันทึกธุรกรรมฝากเงิน (คลังห้องเย็น) สำเร็จ: {deposit_request_id}")
-                except Exception as e_tx:
-                    logger.error(f"❌ [DEPOSIT] บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e_tx)}")
-                
-                text = (
-                    f"✅ คำขอฝากเงิน\n"
-                    f"💰 จำนวนเงิน: {amount} บาท\n"
-                    f"📌 เหตุผล: {reason_text}\n"
-                    f"📍 สถานที่: {location_text}\n"
-                    f"🔄 ฝากเงินสำเร็จแล้ว"
-                )
-            except requests.exceptions.RequestException as e:
-                logger.error(f"❌ [DEPOSIT] API Error (คลังห้องเย็น): {str(e)}")
+                    requests.post(api_url, json=payload, headers=headers, timeout=10)
+                    logger.info(f"📤 [DEPOSIT] Request sent successfully (fire-and-forget)")
+                except Exception as e_send:
+                    logger.error(f"📤 [DEPOSIT] Failed to send request: {str(e_send)}")
+                    # อัปเดตสถานะเป็น error
+                    now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                    deposit_requests_collection.update_one(
+                        {"deposit_request_id": deposit_request_id},
+                        {
+                            "$set": {
+                                "status": "error",
+                                "error_message": f"Failed to send request: {str(e_send)}",
+                                "updated_at_bkk": now_bkk_err.isoformat(),
+                                "updated_at_utc": now_utc_err.isoformat(),
+                            },
+                            "$push": {
+                                "status_history": {
+                                    "status": "error",
+                                    "at_bkk": now_bkk_err.isoformat(),
+                                    "at_utc": now_utc_err.isoformat(),
+                                    "date_bkk": now_bkk_err.date().isoformat(),
+                                    "by": "line_bot_handler",
+                                }
+                            },
+                        },
+                    )
+                    text = (
+                        f"❌ คำขอฝากเงิน\n"
+                        f"💰 จำนวนเงิน: {amount} บาท\n"
+                        f"📌 เหตุผล: {reason_text}\n"
+                        f"📍 สถานที่: {location_text}\n"
+                        f"⚠️ เกิดข้อผิดพลาดในการส่งคำขอ"
+                    )
+                else:
+                    # In fire-and-forget mode, we don't wait for response
+                    # Status will be checked via polling
+                    text = (
+                        f"✅ คำขอฝากเงิน\n"
+                        f"💰 จำนวนเงิน: {amount} บาท\n"
+                        f"📌 เหตุผล: {reason_text}\n"
+                        f"📍 สถานที่: {location_text}\n"
+                        f"🔄 กำลังดำเนินการ..."
+                    )
+            except Exception as e:
+                logger.error(f"❌ [DEPOSIT] Error (คลังห้องเย็น): {str(e)}")
                 # อัปเดตสถานะเป็น error
                 now_bkk_err, now_utc_err = now_bangkok_and_utc()
                 date_bkk_err = now_bkk_err.date().isoformat()
