@@ -178,98 +178,69 @@ def approve_request(request_id):
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            # Use shorter timeout since we're in fire-and-forget mode - just send request
+            # Fire-and-forget: send request without waiting for response
             # Status will be checked via polling
-            response = requests.post(api_url, json=payload, headers=headers, timeout=10)
-
-            # ✅ Log response status และ body
-            logger.info(f"📤 API Response Status: {response.status_code}")
-            logger.info(f"📤 API Response Body: {response.text}")
-
-            response.raise_for_status()  # ถ้า HTTP Status ไม่ใช่ 200 จะเกิด Exception
-
-            response_data = response.json()
-            if not _is_withdraw_success(response_data):
-                logger.error(f"❌ API ตอบกลับผิดพลาด: {response_data}")
-                return jsonify({"status": "error", "message": f"API ตอบกลับผิดพลาด: {response_data}"}), 500
-            else:
-                # ✅ ใช้เวลาแบบ Bangkok +7 และ UTC สำหรับบันทึกสถานะ
+            try:
+                requests.post(api_url, json=payload, headers=headers, timeout=10)
+                logger.info(f"📤 [WITHDRAW] Request sent successfully (fire-and-forget)")
+            except Exception as e_send:
+                logger.error(f"📤 [WITHDRAW] Failed to send request: {str(e_send)}")
+                # อัปเดตสถานะเป็น error
                 now_bkk, now_utc = now_bangkok_and_utc()
-                date_bkk = now_bkk.date().isoformat()
-
-                # ✅ อัปเดตสถานะเป็น "approved" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
                 requests_collection.update_one(
                     {"request_id": request_id},
                     {
                         "$set": {
-                            "status": "approved",
+                            "status": "error",
+                            "machine_error": str(e_send),
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
-                            "machine_response": {
-                                "status_code": response.status_code,
-                                "body": response_data,
-                                "trace_id": trace_id,
-                                "request_id": request_header_id,
-                            },
                         },
                         "$push": {
                             "status_history": {
-                                "status": "approved",
+                                "status": "error",
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
-                                "date_bkk": date_bkk,
+                                "date_bkk": now_bkk.date().isoformat(),
                                 "by": "approver_ui",
                             }
                         },
                     },
                 )
+                return jsonify({"status": "error", "message": f"Failed to send request: {str(e_send)}"}), 500
+            
+            # In fire-and-forget mode, we don't wait for response
+            # Update status to pending and return immediately
+            now_bkk, now_utc = now_bangkok_and_utc()
+            date_bkk = now_bkk.date().isoformat()
 
-                # ✅ บันทึกข้อมูลธุรกรรมใน transactions collection
-                transaction_data = {
-                    "name": reason,
-                    "amount": int(amount),
-                    "receiptAttached": False,
-                    "tags": [],
-                    "type": "expense",
-                    "selectedStorage": location,
-                    "selectedDate": date_bkk,
-                    "transaction_at_bkk": now_bkk.isoformat(),
-                    "transaction_at_utc": now_utc.isoformat(),
-                    "transaction_date_bkk": date_bkk,
-                    "request_id": request_id,
-                    "machine_trace_id": trace_id,
-                    "machine_request_id": request_header_id,
-                }
-
-                # บันทึกข้อมูลลงฐานข้อมูล
-                transaction_result = transactions_collection.insert_one(transaction_data)
-                logger.info(f"✅ บันทึกข้อมูลธุรกรรม ID: {transaction_result.inserted_id} สำเร็จ")
-
-                logger.info(f"✅ อนุมัติคำขอ {request_id} สำเร็จ")
-                return redirect("/money/approved-requests")
-
-        except requests.exceptions.RequestException as e:
-            # เก็บ error ลงคำขอ แต่คงสถานะ awaiting_machine เพื่อให้ตามงานต่อได้
-            logger.error(f"❌ API Error: {str(e)}")
-            try:
-                requests_collection.update_one(
-                    {"request_id": request_id},
-                    {
-                        "$set": {
-                            "machine_error": str(e),
-                            "machine_last_attempt_at_bkk": now_bkk.isoformat(),
-                            "machine_last_attempt_at_utc": now_utc.isoformat(),
-                            "machine_request": {
-                                "api_url": api_url,
-                                "payload": payload,
-                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id, "X-Sale-Id": str(request_id)},
-                            },
+            # ✅ อัปเดตสถานะเป็น "pending" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "pending",
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "pending",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": date_bkk,
+                            "by": "approver_ui",
                         }
                     },
-                )
-            except Exception as e2:
-                logger.error(f"❌ บันทึก machine_error ไม่สำเร็จ: {str(e2)}")
-            return jsonify({"status": "error", "message": "ตู้ถอนเงินยังไม่ตอบรับ กรุณาตรวจสอบสถานะอีกครั้ง"}), 502
+                },
+            )
+            
+            logger.info(f"✅ อนุมัติคำขอ {request_id} - Request sent (fire-and-forget)")
+            return redirect("/money/approved-requests")
+
+        except Exception as e:
+            logger.error(f"❌ [WITHDRAW] Error: {str(e)}")
+            return jsonify({"status": "error", "message": str(e)}), 500
     elif location == "คลังห้องเย็น":
         base = get_rest_api_ci_base_for_branch("Klangfrozen")
         api_url = f"{base}/bot/withdraw"
@@ -285,98 +256,69 @@ def approve_request(request_id):
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            # Use shorter timeout since we're in fire-and-forget mode - just send request
+            # Fire-and-forget: send request without waiting for response
             # Status will be checked via polling
-            response = requests.post(api_url, json=payload, headers=headers, timeout=10)
-
-            # ✅ Log response status และ body
-            logger.info(f"📤 API Response Status: {response.status_code}")
-            logger.info(f"📤 API Response Body: {response.text}")
-
-            response.raise_for_status()  # ถ้า HTTP Status ไม่ใช่ 200 จะเกิด Exception
-
-            response_data = response.json()
-            if not _is_withdraw_success(response_data):
-                logger.error(f"❌ API ตอบกลับผิดพลาด: {response_data}")
-                return jsonify({"status": "error", "message": f"API ตอบกลับผิดพลาด: {response_data}"}), 500
-            else:
-                # ✅ ใช้เวลาแบบ Bangkok +7 และ UTC สำหรับบันทึกสถานะ
+            try:
+                requests.post(api_url, json=payload, headers=headers, timeout=10)
+                logger.info(f"📤 [WITHDRAW] Request sent successfully (fire-and-forget)")
+            except Exception as e_send:
+                logger.error(f"📤 [WITHDRAW] Failed to send request: {str(e_send)}")
+                # อัปเดตสถานะเป็น error
                 now_bkk, now_utc = now_bangkok_and_utc()
-                date_bkk = now_bkk.date().isoformat()
-
-                # ✅ อัปเดตสถานะเป็น "approved" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
                 requests_collection.update_one(
                     {"request_id": request_id},
                     {
                         "$set": {
-                            "status": "approved",
+                            "status": "error",
+                            "machine_error": str(e_send),
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
-                            "machine_response": {
-                                "status_code": response.status_code,
-                                "body": response_data,
-                                "trace_id": trace_id,
-                                "request_id": request_header_id,
-                            },
                         },
                         "$push": {
                             "status_history": {
-                                "status": "approved",
+                                "status": "error",
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
-                                "date_bkk": date_bkk,
+                                "date_bkk": now_bkk.date().isoformat(),
                                 "by": "approver_ui",
                             }
                         },
                     },
                 )
+                return jsonify({"status": "error", "message": f"Failed to send request: {str(e_send)}"}), 500
+            
+            # In fire-and-forget mode, we don't wait for response
+            # Update status to pending and return immediately
+            now_bkk, now_utc = now_bangkok_and_utc()
+            date_bkk = now_bkk.date().isoformat()
 
-                # ✅ บันทึกข้อมูลธุรกรรมใน transactions collection
-                transaction_data = {
-                    "name": reason,
-                    "amount": int(amount),
-                    "receiptAttached": False,
-                    "tags": [],
-                    "type": "expense",
-                    "selectedStorage": location,
-                    "selectedDate": date_bkk,
-                    "transaction_at_bkk": now_bkk.isoformat(),
-                    "transaction_at_utc": now_utc.isoformat(),
-                    "transaction_date_bkk": date_bkk,
-                    "request_id": request_id,
-                    "machine_trace_id": trace_id,
-                    "machine_request_id": request_header_id,
-                }
-
-                # บันทึกข้อมูลลงฐานข้อมูล
-                transaction_result = transactions_collection.insert_one(transaction_data)
-                logger.info(f"✅ บันทึกข้อมูลธุรกรรม ID: {transaction_result.inserted_id} สำเร็จ")
-
-                logger.info(f"✅ อนุมัติคำขอ {request_id} สำเร็จ")
-                return redirect("/money/approved-requests")
-
-        except requests.exceptions.RequestException as e:
-            # เก็บ error ลงคำขอ แต่คงสถานะ awaiting_machine เพื่อให้ตามงานต่อได้
-            logger.error(f"❌ API Error: {str(e)}")
-            try:
-                requests_collection.update_one(
-                    {"request_id": request_id},
-                    {
-                        "$set": {
-                            "machine_error": str(e),
-                            "machine_last_attempt_at_bkk": now_bkk.isoformat(),
-                            "machine_last_attempt_at_utc": now_utc.isoformat(),
-                            "machine_request": {
-                                "api_url": api_url,
-                                "payload": payload,
-                                "headers": {"X-Trace-Id": trace_id, "X-Request-Id": request_header_id, "X-Sale-Id": str(request_id)},
-                            },
+            # ✅ อัปเดตสถานะเป็น "pending" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "pending",
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "pending",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": date_bkk,
+                            "by": "approver_ui",
                         }
                     },
-                )
-            except Exception as e2:
-                logger.error(f"❌ บันทึก machine_error ไม่สำเร็จ: {str(e2)}")
-            return jsonify({"status": "error", "message": "ตู้ถอนเงินยังไม่ตอบรับ กรุณาตรวจสอบสถานะอีกครั้ง"}), 502
+                },
+            )
+            
+            logger.info(f"✅ อนุมัติคำขอ {request_id} - Request sent (fire-and-forget)")
+            return redirect("/money/approved-requests")
+
+        except Exception as e:
+            logger.error(f"❌ [WITHDRAW] Error: {str(e)}")
+            return jsonify({"status": "error", "message": str(e)}), 500
 
 @approved_requests_bp.route("/money/reject/<request_id>", methods=["POST"])
 def reject_request(request_id):
