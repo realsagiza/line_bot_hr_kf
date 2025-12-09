@@ -178,8 +178,9 @@ def approve_request(request_id):
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            # Withdraw can take longer; allow up to 60s
-            response = requests.post(api_url, json=payload, headers=headers, timeout=60)
+            # Use shorter timeout since we're in fire-and-forget mode - just send request
+            # Status will be checked via polling
+            response = requests.post(api_url, json=payload, headers=headers, timeout=10)
 
             # ✅ Log response status และ body
             logger.info(f"📤 API Response Status: {response.status_code}")
@@ -284,8 +285,9 @@ def approve_request(request_id):
         logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
 
         try:
-            # Withdraw can take longer; allow up to 60s
-            response = requests.post(api_url, json=payload, headers=headers, timeout=60)
+            # Use shorter timeout since we're in fire-and-forget mode - just send request
+            # Status will be checked via polling
+            response = requests.post(api_url, json=payload, headers=headers, timeout=10)
 
             # ✅ Log response status และ body
             logger.info(f"📤 API Response Status: {response.status_code}")

@@ -232,7 +232,9 @@ def handle_postback(event, line_bot_api):
             
             # ยิง API ไปยัง REST_API_CI
             try:
-                response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+                # Use shorter timeout since we're in fire-and-forget mode - just send request
+                # Status will be checked via polling
+                response = requests.post(api_url, json=payload, headers=headers, timeout=10)
                 response.raise_for_status()
                 
                 # อัปเดตสถานะเป็น success และบันทึกธุรกรรม
@@ -392,7 +394,9 @@ def handle_postback(event, line_bot_api):
             
             # ยิง API ไปยัง REST_API_CI
             try:
-                response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+                # Use shorter timeout since we're in fire-and-forget mode - just send request
+                # Status will be checked via polling
+                response = requests.post(api_url, json=payload, headers=headers, timeout=10)
                 response.raise_for_status()
                 
                 # อัปเดตสถานะเป็น success และบันทึกธุรกรรม
