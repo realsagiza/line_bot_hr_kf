@@ -632,11 +632,13 @@ def api_deposit_request():
         logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
         return jsonify({"status": "error", "message": "ไม่สามารถบันทึกคำขอฝากเงินได้"}), 500
 
-    # ประมวลผล async ใน background thread
+    # ประมวลผล async ใน background thread (fire-and-forget mode)
     def _process_deposit_async():
         logger.info(f"📤 [DEPOSIT] (async) ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
         try:
-            response = requests.post(api_url, json=payload, headers=headers, timeout=3600)
+            # Use shorter timeout since we're in fire-and-forget mode - just send request
+            # Status will be checked via polling
+            response = requests.post(api_url, json=payload, headers=headers, timeout=10)
             status_code = response.status_code
             try:
                 response_text = response.text
