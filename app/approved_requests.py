@@ -647,26 +647,6 @@ def api_deposit_request():
             except Exception:
                 pass
             return
-                "name": reason,
-                "amount": amount_int,
-                "receiptAttached": False,
-                "tags": [],
-                "type": "income",
-                "selectedStorage": location_text,
-                "selectedDate": date_bkk_ok,
-                "transaction_at_bkk": now_bkk_ok.isoformat(),
-                "transaction_at_utc": now_utc_ok.isoformat(),
-                "transaction_date_bkk": date_bkk_ok,
-                "direction": "deposit",
-                "channel": "liff",
-                "user_id": user_id,
-                "deposit_request_id": deposit_request_id,
-            }
-            try:
-                result = transactions_collection.insert_one(transaction_data)
-                logger.info(f"✅ [DEPOSIT] (async) บันทึกธุรกรรมฝากเงิน ID: {result.inserted_id} สำเร็จ")
-            except Exception as e_tx:
-                logger.error(f"❌ [DEPOSIT] (async) บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e_tx)}")
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ [DEPOSIT] (async) API Error: {str(e)}")
             now_bkk_err, now_utc_err = now_bangkok_and_utc()
