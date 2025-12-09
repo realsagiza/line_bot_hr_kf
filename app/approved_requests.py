@@ -638,17 +638,45 @@ def api_deposit_request():
     def _process_deposit_async():
         logger.info(f"📤 [DEPOSIT] (async) ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
         try:
-            # Use shorter timeout since we're in fire-and-forget mode - just send request
+            # Fire-and-forget: send request without waiting for response
             # Status will be checked via polling
-            response = requests.post(api_url, json=payload, headers=headers, timeout=10)
-            status_code = response.status_code
             try:
-                response_text = response.text
-            except Exception:
-                response_text = ""
-            try:
-                response.raise_for_status()
-            except Exception as e_http:
+                requests.post(api_url, json=payload, headers=headers, timeout=10)
+                logger.info(f"📤 [DEPOSIT] (async) Request sent successfully")
+            except Exception as e_send:
+                logger.error(f"📤 [DEPOSIT] (async) Failed to send request: {str(e_send)}")
+                # Update status to error
+                try:
+                    now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                    date_bkk_err = now_bkk_err.date().isoformat()
+                    deposit_requests_collection.update_one(
+                        {"deposit_request_id": deposit_request_id},
+                        {
+                            "$set": {
+                                "status": "error",
+                                "error_message": f"Failed to send request: {str(e_send)}",
+                                "updated_at_bkk": now_bkk_err.isoformat(),
+                                "updated_at_utc": now_utc_err.isoformat(),
+                            },
+                            "$push": {
+                                "status_history": {
+                                    "status": "error",
+                                    "at_bkk": now_bkk_err.isoformat(),
+                                    "at_utc": now_utc_err.isoformat(),
+                                    "date_bkk": date_bkk_err,
+                                    "by": "deposit_api_async",
+                                }
+                            },
+                        },
+                    )
+                except Exception:
+                    pass
+                return
+            
+            # In fire-and-forget mode, we don't wait for response
+            # Status will be checked via polling
+            return
+        except Exception as e_http:
                 now_bkk_err, now_utc_err = now_bangkok_and_utc()
                 date_bkk_err = now_bkk_err.date().isoformat()
                 deposit_requests_collection.update_one(
