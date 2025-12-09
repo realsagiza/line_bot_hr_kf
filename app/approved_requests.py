@@ -677,6 +677,9 @@ def api_deposit_request():
             # Status will be checked via polling
             return
         except Exception as e_http:
+            # Handle any unexpected errors
+            logger.error(f"📤 [DEPOSIT] (async) Unexpected error: {str(e_http)}")
+            try:
                 now_bkk_err, now_utc_err = now_bangkok_and_utc()
                 date_bkk_err = now_bkk_err.date().isoformat()
                 deposit_requests_collection.update_one(
@@ -684,8 +687,7 @@ def api_deposit_request():
                     {
                         "$set": {
                             "status": "error",
-                            "error_message": f"HTTP {status_code}: {str(e_http)}",
-                            "external_response_text": response_text,
+                            "error_message": f"Unexpected error: {str(e_http)}",
                             "updated_at_bkk": now_bkk_err.isoformat(),
                             "updated_at_utc": now_utc_err.isoformat(),
                         },
@@ -700,32 +702,9 @@ def api_deposit_request():
                         },
                     },
                 )
-                return
-
-            # success
-            now_bkk_ok, now_utc_ok = now_bangkok_and_utc()
-            date_bkk_ok = now_bkk_ok.date().isoformat()
-            deposit_requests_collection.update_one(
-                {"deposit_request_id": deposit_request_id},
-                {
-                    "$set": {
-                        "status": "success",
-                        "updated_at_bkk": now_bkk_ok.isoformat(),
-                        "updated_at_utc": now_utc_ok.isoformat(),
-                        "external_response_text": response_text,
-                    },
-                    "$push": {
-                        "status_history": {
-                            "status": "success",
-                            "at_bkk": now_bkk_ok.isoformat(),
-                            "at_utc": now_utc_ok.isoformat(),
-                            "date_bkk": date_bkk_ok,
-                            "by": "deposit_api_async",
-                        }
-                    },
-                },
-            )
-            transaction_data = {
+            except Exception:
+                pass
+            return
                 "name": reason,
                 "amount": amount_int,
                 "receiptAttached": False,
