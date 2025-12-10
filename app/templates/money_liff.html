@@ -525,6 +525,7 @@
     let currentSessionId = null;
     let currentSeqNo = null;
     let isDepositEnded = false;
+    let depositStartTime = null;
 
     async function submitDepositForm(event) {
       event.preventDefault();
@@ -596,6 +597,10 @@
         statusEl.textContent = "✅ เริ่มต้นการฝากเงินสำเร็จ";
         statusEl.classList.add('status-ok');
 
+        // ตั้งค่าเวลาที่เริ่มฝากเงิน
+        depositStartTime = Date.now();
+        isDepositEnded = false;
+
         // เริ่ม polling ยอดเงิน
         startDepositPolling();
 
@@ -663,9 +668,15 @@
             document.getElementById('deposit-status-text').style.background = '#dcfce7';
             document.getElementById('deposit-status-text').style.color = '#166534';
           } else {
-            document.getElementById('deposit-status-text').textContent = 'รอการฝากเงิน... (ยังไม่มียอดเงิน)';
-            document.getElementById('deposit-status-text').style.background = '#f3f4f6';
-            document.getElementById('deposit-status-text').style.color = '#6b7280';
+            // แสดงข้อความที่ชัดเจนขึ้นว่าต้องรอให้เครื่องส่ง event มา
+            if (depositStartTime) {
+              const elapsedSeconds = Math.floor((Date.now() - depositStartTime) / 1000);
+              document.getElementById('deposit-status-text').textContent = `รอการฝากเงิน... (รอ ${elapsedSeconds} วินาที) - กรุณาเริ่มฝากเงินที่เครื่อง`;
+            } else {
+              document.getElementById('deposit-status-text').textContent = 'รอการฝากเงิน... (ยังไม่มียอดเงิน) - กรุณาเริ่มฝากเงินที่เครื่อง';
+            }
+            document.getElementById('deposit-status-text').style.background = '#fef3c7';
+            document.getElementById('deposit-status-text').style.color = '#92400e';
           }
         } else {
           console.error('Poll error:', data.error);
