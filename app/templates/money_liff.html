@@ -640,13 +640,13 @@
     }
 
     async function pollDepositAmount() {
-      if (!currentDepositId || isDepositEnded) {
+      if (!currentBranchBaseUrl || isDepositEnded) {
         return;
       }
 
       try {
-        const cacheBuster = `&_t=${Date.now()}`;
-        const url = `/money/api/socket-latest?deposit_id=${currentDepositId}${cacheBuster}`;
+        const cacheBuster = `?_t=${Date.now()}`;
+        const url = `${currentBranchBaseUrl}/socket/latest${cacheBuster}`;
         console.log('Polling:', url); // Debug log
         
         const response = await fetch(url, {
@@ -668,8 +668,8 @@
         const data = await response.json();
         console.log('Poll response:', data); // Debug log
 
-        // Handle response format: {status: "ok", amount_baht: 0, success: true, ts: 0}
-        if (data.status === "ok" && data.success !== false) {
+        // Handle response format: {amount_baht: 0, success: true, ts: 0}
+        if (data.success !== false) {
           const amount = data.amount_baht || 0;
           const ts = data.ts || 0;
           
@@ -702,8 +702,8 @@
             document.getElementById('deposit-status-text').style.color = '#92400e';
           }
         } else {
-          console.error('Poll error:', data.message || data.error);
-          document.getElementById('deposit-status-text').textContent = `⚠️ API Error: ${data.message || data.error || 'Unknown error'}`;
+          console.error('Poll error:', data.error);
+          document.getElementById('deposit-status-text').textContent = `⚠️ API Error: ${data.error || 'Unknown error'}`;
           document.getElementById('deposit-status-text').style.background = '#fee2e2';
           document.getElementById('deposit-status-text').style.color = '#991b1b';
         }
