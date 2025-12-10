@@ -1105,6 +1105,76 @@ def api_replenishment_cancel():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@approved_requests_bp.route("/money/api/socket-latest", methods=["GET"])
+def api_socket_latest():
+    """Get latest socket amount from branch API"""
+    try:
+        deposit_id = request.args.get("deposit_id")
+        
+        if not deposit_id:
+            return jsonify({"status": "error", "message": "missing deposit_id"}), 400
+        
+        # ดึงข้อมูล deposit request
+        doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_id})
+        if not doc:
+            return jsonify({"status": "error", "message": "deposit request not found"}), 404
+        
+        branch_id = doc.get("branch_id")
+        branch_base_url = get_rest_api_ci_base_for_branch(branch_id) if branch_id else None
+        
+        if not branch_base_url:
+            return jsonify({"status": "error", "message": "branch_base_url not found"}), 400
+        
+        # ยิง GET request ไปที่ /socket/latest
+        try:
+            headers, meta = build_correlation_headers(sale_id=deposit_id)
+            socket_url = f"{branch_base_url}/socket/latest"
+            
+            logger.debug(f"📤 [SOCKET] กำลังยิง /socket/latest: {socket_url}")
+            socket_response = requests.get(socket_url, headers=headers, timeout=5)
+            socket_response.raise_for_status()
+            socket_data = socket_response.json()
+            
+            logger.debug(f"✅ [SOCKET] /socket/latest สำเร็จ: {socket_data}")
+            
+            # Return response ตาม format เดิม
+            return jsonify({
+                "status": "ok",
+                "amount_baht": socket_data.get("amount_baht", 0),
+                "success": socket_data.get("success", True),
+                "ts": socket_data.get("ts", 0)
+            })
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [SOCKET] Request Exception: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": f"Request exception: {str(e)}",
+                "amount_baht": 0,
+                "success": False,
+                "ts": 0
+            }), 500
+        except Exception as e:
+            logger.error(f"❌ [SOCKET] Error: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "amount_baht": 0,
+                "success": False,
+                "ts": 0
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ [SOCKET] Error: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "amount_baht": 0,
+            "success": False,
+            "ts": 0
+        }), 500
+
+
 @approved_requests_bp.route("/money/deposit-monitor", methods=["GET"])
 def deposit_monitor():
     """หน้า UI สำหรับติดตามการฝากเงิน"""
