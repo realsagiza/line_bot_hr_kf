@@ -170,6 +170,10 @@
             background: #ef4444;
             color: #fef2f2;
         }
+        .status-badge.pending {
+            background: #f59e0b;
+            color: #fef3c7;
+        }
         .item-row {
             font-size: 11px;
             color: #374151;
@@ -278,7 +282,7 @@
 
         <div class="card">
             <div class="section-title">
-                <span>💰 รายการฝากเงินสด</span>
+                <span>💰 รายการฝากเงินสด (ระบบเก่า)</span>
                 <span class="pill">{{ deposit_transactions|length }} รายการ</span>
             </div>
             {% if deposit_transactions %}
@@ -307,6 +311,60 @@
                             {{ tx.transaction_date_bkk if tx.transaction_date_bkk is defined else selected_date }}
                         </span>
                     </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty">ยังไม่มีรายการฝากเงินสำหรับวันที่และสาขานี้</div>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <div class="section-title">
+                <span>💵 รายการฝากเงิน (ระบบใหม่)</span>
+                <span class="pill">{{ deposit_requests|length }} รายการ</span>
+            </div>
+            {% if deposit_requests %}
+            <div class="list">
+                {% for dr in deposit_requests %}
+                <div class="item {% if dr.status == 'replenishment_started' or dr.status == 'completed' %}approved{% elif dr.status == 'cancelled' or dr.status == 'error' %}rejected{% endif %}">
+                    <div class="item-header">
+                        <div class="item-id">หมายเลขคำขอ: {{ dr.deposit_request_id }}</div>
+                        <div class="status-badge {% if dr.status == 'replenishment_started' or dr.status == 'completed' %}approved{% elif dr.status == 'cancelled' or dr.status == 'error' %}rejected{% else %}pending{% endif %}">
+                            {% if dr.status == 'replenishment_initiated' %}เริ่มต้นแล้ว
+                            {% elif dr.status == 'replenishment_started' %}กำลังฝาก
+                            {% elif dr.status == 'completed' %}เสร็จสิ้น
+                            {% elif dr.status == 'cancelled' %}ยกเลิก
+                            {% elif dr.status == 'error' %}เกิดข้อผิดพลาด
+                            {% else %}{{ dr.status }}{% endif %}
+                        </div>
+                    </div>
+                    <div class="item-row">
+                        <span>จำนวนเงิน</span>
+                        <span class="value">
+                            {% if dr.amount %}{{ dr.amount }} บาท{% else %}รอการนับยอด{% endif %}
+                        </span>
+                    </div>
+                    <div class="item-row">
+                        <span>เหตุผล</span>
+                        <span class="value">{{ dr.reason }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>สถานที่ฝากเงิน</span>
+                        <span class="value">{{ dr.location }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>วันที่ขอ (เวลาไทย)</span>
+                        <span class="value">
+                            {{ dr.created_date_bkk if dr.created_date_bkk is defined else '' }}
+                        </span>
+                    </div>
+                    {% if dr.error_message %}
+                    <div class="item-row">
+                        <span>ข้อผิดพลาด</span>
+                        <span class="value" style="color: #b91c1c;">{{ dr.error_message }}</span>
+                    </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>

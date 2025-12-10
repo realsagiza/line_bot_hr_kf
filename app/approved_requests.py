@@ -83,7 +83,7 @@ def request_status():
     approved_requests = [r for r in all_requests if r.get("status") == "approved"]
     rejected_requests = [r for r in all_requests if r.get("status") == "rejected"]
 
-    # ข้อมูลฝากเงิน (deposit) จาก collection transactions
+    # ข้อมูลฝากเงิน (deposit) จาก collection transactions (ระบบเก่า)
     deposit_query = {
         "direction": "deposit",
         "transaction_date_bkk": selected_date,
@@ -96,11 +96,24 @@ def request_status():
     )
     deposit_transactions = list(deposit_cursor)
 
+    # ข้อมูลฝากเงิน (deposit) จาก collection deposit_requests (ระบบใหม่ - replenishment)
+    deposit_requests_query = {
+        "created_date_bkk": selected_date,
+    }
+    if selected_branch in ("คลังห้องเย็น", "โนนิโกะ"):
+        deposit_requests_query["location"] = selected_branch
+
+    deposit_requests_cursor = deposit_requests_collection.find(
+        deposit_requests_query, {"_id": 0}
+    ).sort("created_at_bkk", -1)
+    deposit_requests = list(deposit_requests_cursor)
+
     return render_template(
         "request_status.html",
         approved_requests=approved_requests,
         rejected_requests=rejected_requests,
         deposit_transactions=deposit_transactions,
+        deposit_requests=deposit_requests,
         selected_date=selected_date,
         selected_branch=selected_branch,
     )
