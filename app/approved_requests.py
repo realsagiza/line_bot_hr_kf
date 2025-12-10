@@ -921,3 +921,203 @@ def api_deposit_status():
         "amount": doc.get("amount"),
     }
     return jsonify({"status": "ok", "data": resp})
+
+
+@approved_requests_bp.route("/money/api/deposit-info", methods=["GET"])
+def api_deposit_info():
+    """Get deposit request info for monitoring page"""
+    deposit_request_id = request.args.get("id") or request.args.get("deposit_request_id")
+    if not deposit_request_id:
+        return jsonify({"status": "error", "message": "missing deposit_request_id"}), 400
+    
+    doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_request_id}, {"_id": 0})
+    if not doc:
+        return jsonify({"status": "error", "message": "not found"}), 404
+    
+    # กำหนด branch_base_url จาก branch_id
+    branch_id = doc.get("branch_id")
+    branch_base_url = get_rest_api_ci_base_for_branch(branch_id) if branch_id else None
+    
+    resp = {
+        "deposit_request_id": doc.get("deposit_request_id"),
+        "location": doc.get("location"),
+        "reason": doc.get("reason"),
+        "session_id": doc.get("session_id"),
+        "seq_no": doc.get("seq_no"),
+        "branch_id": branch_id,
+        "branch_base_url": branch_base_url,
+        "status": doc.get("status"),
+    }
+    return jsonify({"status": "ok", "data": resp})
+
+
+@approved_requests_bp.route("/money/api/replenishment-end", methods=["POST"])
+def api_replenishment_end():
+    """End replenishment operation"""
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
+    
+    deposit_id = data.get("deposit_id")
+    session_id = data.get("session_id")
+    seq_no = data.get("seq_no", "1")
+    
+    if not deposit_id:
+        return jsonify({"status": "error", "message": "missing deposit_id"}), 400
+    
+    # ดึงข้อมูล deposit request
+    doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_id})
+    if not doc:
+        return jsonify({"status": "error", "message": "deposit request not found"}), 404
+    
+    branch_id = doc.get("branch_id")
+    branch_base_url = get_rest_api_ci_base_for_branch(branch_id) if branch_id else None
+    
+    if not branch_base_url:
+        return jsonify({"status": "error", "message": "branch_base_url not found"}), 400
+    
+    # ใช้ session_id และ seq_no จาก doc ถ้าไม่ได้ส่งมา
+    session_id = session_id or doc.get("session_id")
+    seq_no = seq_no or doc.get("seq_no", "1")
+    
+    # ยิง API /replenishment/end
+    try:
+        headers, meta = build_correlation_headers(sale_id=deposit_id)
+        end_url = f"{branch_base_url}/replenishment/end"
+        end_payload = {
+            "seq_no": seq_no,
+            "session_id": session_id
+        }
+        
+        logger.info(f"📤 [REPLENISHMENT] กำลังยิง /replenishment/end: {end_url}")
+        end_response = requests.post(end_url, json=end_payload, headers=headers, timeout=10)
+        end_response.raise_for_status()
+        end_data = end_response.json()
+        
+        if not end_data.get("success"):
+            error_msg = end_data.get("error", "Unknown error from /replenishment/end")
+            logger.error(f"❌ [REPLENISHMENT] /replenishment/end failed: {error_msg}")
+            return jsonify({"status": "error", "message": f"/replenishment/end failed: {error_msg}"}), 500
+        
+        logger.info(f"✅ [REPLENISHMENT] /replenishment/end สำเร็จ: {end_data}")
+        
+        # อัปเดตสถานะใน MongoDB
+        now_bkk, now_utc = now_bangkok_and_utc()
+        deposit_requests_collection.update_one(
+            {"deposit_request_id": deposit_id},
+            {
+                "$set": {
+                    "status": "completed",
+                    "updated_at_bkk": now_bkk.isoformat(),
+                    "updated_at_utc": now_utc.isoformat(),
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "completed",
+                        "at_bkk": now_bkk.isoformat(),
+                        "at_utc": now_utc.isoformat(),
+                        "date_bkk": now_bkk.date().isoformat(),
+                        "by": "user",
+                    }
+                },
+            },
+        )
+        
+        return jsonify({"status": "ok", "message": "จบการฝากเงินสำเร็จ"})
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [REPLENISHMENT] Request Exception: {str(e)}")
+        return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"❌ [REPLENISHMENT] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@approved_requests_bp.route("/money/api/replenishment-cancel", methods=["POST"])
+def api_replenishment_cancel():
+    """Cancel replenishment operation"""
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
+    
+    deposit_id = data.get("deposit_id")
+    session_id = data.get("session_id")
+    seq_no = data.get("seq_no", "1")
+    
+    if not deposit_id:
+        return jsonify({"status": "error", "message": "missing deposit_id"}), 400
+    
+    # ดึงข้อมูล deposit request
+    doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_id})
+    if not doc:
+        return jsonify({"status": "error", "message": "deposit request not found"}), 404
+    
+    branch_id = doc.get("branch_id")
+    branch_base_url = get_rest_api_ci_base_for_branch(branch_id) if branch_id else None
+    
+    if not branch_base_url:
+        return jsonify({"status": "error", "message": "branch_base_url not found"}), 400
+    
+    # ใช้ session_id และ seq_no จาก doc ถ้าไม่ได้ส่งมา
+    session_id = session_id or doc.get("session_id")
+    seq_no = seq_no or doc.get("seq_no", "1")
+    
+    # ยิง API /replenishment/cancel
+    try:
+        headers, meta = build_correlation_headers(sale_id=deposit_id)
+        cancel_url = f"{branch_base_url}/replenishment/cancel"
+        cancel_payload = {
+            "seq_no": seq_no,
+            "session_id": session_id
+        }
+        
+        logger.info(f"📤 [REPLENISHMENT] กำลังยิง /replenishment/cancel: {cancel_url}")
+        cancel_response = requests.post(cancel_url, json=cancel_payload, headers=headers, timeout=10)
+        cancel_response.raise_for_status()
+        cancel_data = cancel_response.json()
+        
+        if not cancel_data.get("success"):
+            error_msg = cancel_data.get("error", "Unknown error from /replenishment/cancel")
+            logger.error(f"❌ [REPLENISHMENT] /replenishment/cancel failed: {error_msg}")
+            return jsonify({"status": "error", "message": f"/replenishment/cancel failed: {error_msg}"}), 500
+        
+        logger.info(f"✅ [REPLENISHMENT] /replenishment/cancel สำเร็จ: {cancel_data}")
+        
+        # อัปเดตสถานะใน MongoDB
+        now_bkk, now_utc = now_bangkok_and_utc()
+        deposit_requests_collection.update_one(
+            {"deposit_request_id": deposit_id},
+            {
+                "$set": {
+                    "status": "cancelled",
+                    "updated_at_bkk": now_bkk.isoformat(),
+                    "updated_at_utc": now_utc.isoformat(),
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "cancelled",
+                        "at_bkk": now_bkk.isoformat(),
+                        "at_utc": now_utc.isoformat(),
+                        "date_bkk": now_bkk.date().isoformat(),
+                        "by": "user",
+                    }
+                },
+            },
+        )
+        
+        return jsonify({"status": "ok", "message": "ยกเลิกการฝากเงินสำเร็จ"})
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [REPLENISHMENT] Request Exception: {str(e)}")
+        return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"❌ [REPLENISHMENT] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@approved_requests_bp.route("/money/deposit-monitor", methods=["GET"])
+def deposit_monitor():
+    """หน้า UI สำหรับติดตามการฝากเงิน"""
+    return render_template("deposit_monitor.html")

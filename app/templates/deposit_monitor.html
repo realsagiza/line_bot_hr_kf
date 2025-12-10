@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ติดตามการฝากเงิน</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --bg: #f3f4f6;
+      --card-bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #dbeafe 0, #f3f4f6 40%, #e5e7eb 100%);
+      color: #111827;
+    }
+    .app {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 18px;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
+      padding: 24px;
+      margin-top: 12px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #6b7280;
+    }
+    .amount-display {
+      text-align: center;
+      padding: 32px 0;
+      margin: 24px 0;
+      background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+      border-radius: 16px;
+    }
+    .amount-label {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+    .amount-value {
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    .amount-unit {
+      font-size: 20px;
+      color: #6b7280;
+      margin-left: 4px;
+    }
+    .status {
+      text-align: center;
+      padding: 12px;
+      border-radius: 12px;
+      margin: 16px 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .status-active {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .status-completed {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .status-error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .info-section {
+      margin: 24px 0;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-label {
+      font-size: 14px;
+      color: #6b7280;
+    }
+    .info-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #111827;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .btn {
+      flex: 1;
+      border: none;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+    .btn:active {
+      transform: translateY(1px);
+    }
+    .btn-success {
+      background: linear-gradient(135deg, var(--success), #16a34a);
+      color: white;
+      box-shadow: 0 10px 22px rgba(22, 163, 74, 0.35);
+    }
+    .btn-danger {
+      background: linear-gradient(135deg, var(--danger), #dc2626);
+      color: white;
+      box-shadow: 0 10px 22px rgba(239, 68, 68, 0.35);
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .loading {
+      text-align: center;
+      padding: 24px;
+      color: #6b7280;
+    }
+    .error {
+      text-align: center;
+      padding: 16px;
+      background: #fee2e2;
+      color: #991b1b;
+      border-radius: 12px;
+      margin: 16px 0;
+    }
+  </style>
+  <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
+</head>
+<body>
+  <div class="app">
+    <div class="card">
+      <div class="header">
+        <div class="title">💰 ติดตามการฝากเงิน</div>
+        <div class="subtitle">ยอดเงินจะอัปเดตอัตโนมัติทุก 2 วินาที</div>
+      </div>
+
+      <div id="loading" class="loading">กำลังโหลดข้อมูล...</div>
+      <div id="error" class="error hidden"></div>
+
+      <div id="content" class="hidden">
+        <div class="amount-display">
+          <div class="amount-label">ยอดเงินที่ฝาก</div>
+          <div>
+            <span class="amount-value" id="amount-value">0</span>
+            <span class="amount-unit">บาท</span>
+          </div>
+        </div>
+
+        <div class="status" id="status">กำลังฝากเงิน...</div>
+
+        <div class="info-section">
+          <div class="info-row">
+            <span class="info-label">สถานที่</span>
+            <span class="info-value" id="location">-</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">เหตุผล</span>
+            <span class="info-value" id="reason">-</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">หมายเลขคำขอ</span>
+            <span class="info-value" id="deposit-id">-</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-success" id="btn-end" onclick="endDeposit()">✅ จบการฝาก</button>
+          <button class="btn btn-danger" id="btn-cancel" onclick="cancelDeposit()">❌ ยกเลิก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let depositId = null;
+    let branchBaseUrl = null;
+    let sessionId = null;
+    let seqNo = null;
+    let pollingInterval = null;
+    let isEnded = false;
+
+    // ดึง deposit_id จาก query string
+    const urlParams = new URLSearchParams(window.location.search);
+    depositId = urlParams.get('deposit_id');
+
+    if (!depositId) {
+      showError('ไม่พบหมายเลขคำขอฝากเงิน');
+      return;
+    }
+
+    async function init() {
+      try {
+        // ดึงข้อมูล deposit request
+        const response = await fetch(`/money/api/deposit-info?id=${encodeURIComponent(depositId)}`);
+        const data = await response.json();
+        
+        if (!response.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'ไม่สามารถโหลดข้อมูลได้');
+        }
+
+        const depositInfo = data.data;
+        branchBaseUrl = depositInfo.branch_base_url;
+        sessionId = depositInfo.session_id;
+        seqNo = depositInfo.seq_no;
+
+        // แสดงข้อมูล
+        document.getElementById('location').textContent = depositInfo.location || '-';
+        document.getElementById('reason').textContent = depositInfo.reason || '-';
+        document.getElementById('deposit-id').textContent = depositId;
+
+        // ซ่อน loading, แสดง content
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+
+        // เริ่ม polling
+        startPolling();
+      } catch (err) {
+        console.error('Init error:', err);
+        showError(err.message || 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
+      }
+    }
+
+    function startPolling() {
+      // Poll ทันทีครั้งแรก
+      pollAmount();
+
+      // Poll ทุก 2 วินาที
+      pollingInterval = setInterval(pollAmount, 2000);
+    }
+
+    function stopPolling() {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+    }
+
+    async function pollAmount() {
+      if (!branchBaseUrl || isEnded) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`${branchBaseUrl}/socket/latest`);
+        const data = await response.json();
+
+        if (data.success) {
+          const amount = data.amount_baht || 0;
+          document.getElementById('amount-value').textContent = amount.toLocaleString('th-TH');
+          
+          // อัปเดตสถานะ
+          if (amount > 0) {
+            document.getElementById('status').textContent = 'กำลังฝากเงิน...';
+            document.getElementById('status').className = 'status status-active';
+          }
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+        // ไม่แสดง error เพื่อไม่รบกวนผู้ใช้
+      }
+    }
+
+    async function endDeposit() {
+      if (isEnded) return;
+
+      const btn = document.getElementById('btn-end');
+      btn.disabled = true;
+      btn.textContent = 'กำลังจบการฝาก...';
+
+      try {
+        const response = await fetch('/money/api/replenishment-end', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            deposit_id: depositId,
+            session_id: sessionId,
+            seq_no: seqNo
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'ไม่สามารถจบการฝากได้');
+        }
+
+        isEnded = true;
+        stopPolling();
+        
+        document.getElementById('status').textContent = '✅ จบการฝากสำเร็จ';
+        document.getElementById('status').className = 'status status-completed';
+        document.getElementById('btn-end').disabled = true;
+        document.getElementById('btn-cancel').disabled = true;
+
+        // รอ 3 วินาทีแล้วปิดหน้า
+        setTimeout(() => {
+          if (window.liff) {
+            window.liff.closeWindow();
+          } else {
+            window.close();
+          }
+        }, 3000);
+      } catch (err) {
+        console.error('End deposit error:', err);
+        showError(err.message || 'เกิดข้อผิดพลาดในการจบการฝาก');
+        btn.disabled = false;
+        btn.textContent = '✅ จบการฝาก';
+      }
+    }
+
+    async function cancelDeposit() {
+      if (isEnded) return;
+
+      if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการยกเลิกการฝากเงิน?')) {
+        return;
+      }
+
+      const btn = document.getElementById('btn-cancel');
+      btn.disabled = true;
+      btn.textContent = 'กำลังยกเลิก...';
+
+      try {
+        const response = await fetch('/money/api/replenishment-cancel', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            deposit_id: depositId,
+            session_id: sessionId,
+            seq_no: seqNo
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'ไม่สามารถยกเลิกการฝากได้');
+        }
+
+        isEnded = true;
+        stopPolling();
+        
+        document.getElementById('status').textContent = '❌ ยกเลิกการฝากแล้ว';
+        document.getElementById('status').className = 'status status-error';
+        document.getElementById('btn-end').disabled = true;
+        document.getElementById('btn-cancel').disabled = true;
+
+        // รอ 3 วินาทีแล้วปิดหน้า
+        setTimeout(() => {
+          if (window.liff) {
+            window.liff.closeWindow();
+          } else {
+            window.close();
+          }
+        }, 3000);
+      } catch (err) {
+        console.error('Cancel deposit error:', err);
+        showError(err.message || 'เกิดข้อผิดพลาดในการยกเลิก');
+        btn.disabled = false;
+        btn.textContent = '❌ ยกเลิก';
+      }
+    }
+
+    function showError(message) {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('error').textContent = message;
+      document.getElementById('error').classList.remove('hidden');
+    }
+
+    // เริ่มต้นเมื่อโหลดหน้า
+    window.addEventListener('load', () => {
+      init();
+    });
+
+    // หยุด polling เมื่อปิดหน้า
+    window.addEventListener('beforeunload', () => {
+      stopPolling();
+    });
+  </script>
+</body>
+</html>
+

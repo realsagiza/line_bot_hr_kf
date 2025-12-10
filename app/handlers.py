@@ -3,7 +3,7 @@ import logging
 import requests
 from pymongo import MongoClient
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction
+    MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction, URITemplateAction
 )
 from config import Config
 from http_utils import build_correlation_headers, get_rest_api_ci_base_for_branch
@@ -178,12 +178,7 @@ def handle_postback(event, line_bot_api):
             
             location_text = "โนนิโกะ"
             branch_id = "NONIKO"
-            api_url = f"{get_rest_api_ci_base_for_branch('NONIKO')}/bot/deposit"
-            payload = {
-                "amount": int(amount),  # ✅ แปลงเป็น int
-                "machine_id": "line_bot_audit_kf",
-                "branch_id": branch_id
-            }
+            base_url = get_rest_api_ci_base_for_branch('NONIKO')
             
             # สร้าง deposit_request_id และ correlation headers
             deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
@@ -195,27 +190,30 @@ def handle_postback(event, line_bot_api):
             now_bkk, now_utc = now_bangkok_and_utc()
             date_bkk = now_bkk.date().isoformat()
             
+            # สร้าง session_id และ seq_no สำหรับ replenishment
+            session_id = deposit_request_id
+            seq_no = "1"
+            
             deposit_doc = {
                 "deposit_request_id": deposit_request_id,
                 "user_id": user_id,
-                "amount": int(amount),
+                "amount": int(amount) if amount else None,
                 "reason_code": reson,
                 "reason": reason_text,
                 "location": location_text,
                 "branch_id": branch_id,
-                "api_url": api_url,
-                "payload": payload,
                 "trace_id": trace_id,
                 "request_header_id": request_header_id,
-                "status": "pending",
+                "session_id": session_id,
+                "seq_no": seq_no,
+                "status": "replenishment_started",
                 "created_at_bkk": now_bkk.isoformat(),
                 "created_at_utc": now_utc.isoformat(),
                 "created_date_bkk": date_bkk,
-                "sale_id_for_machine": deposit_request_id,
                 "channel": "line_bot",
                 "status_history": [
                     {
-                        "status": "pending",
+                        "status": "replenishment_started",
                         "at_bkk": now_bkk.isoformat(),
                         "at_utc": now_utc.isoformat(),
                         "date_bkk": date_bkk,
@@ -226,27 +224,33 @@ def handle_postback(event, line_bot_api):
             
             try:
                 deposit_requests_collection.insert_one(deposit_doc)
-                logger.info(f"✅ [DEPOSIT] บันทึกคำขอฝากเงิน (ดนนิโกะ): {deposit_request_id}")
+                logger.info(f"✅ [DEPOSIT] บันทึกคำขอฝากเงิน (โนนิโกะ): {deposit_request_id}")
             except Exception as e:
                 logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
             
-            # ยิง API ไปยัง REST_API_CI (fire-and-forget mode)
+            # ยิง API /replenishment/start
             try:
-                # Fire-and-forget: send request without waiting for response
-                # Status will be checked via polling
-                try:
-                    requests.post(api_url, json=payload, headers=headers, timeout=10)
-                    logger.info(f"📤 [DEPOSIT] Request sent successfully (fire-and-forget)")
-                except Exception as e_send:
-                    logger.error(f"📤 [DEPOSIT] Failed to send request: {str(e_send)}")
-                    # อัปเดตสถานะเป็น error
+                replenishment_start_url = f"{base_url}/replenishment/start"
+                replenishment_payload = {
+                    "seq_no": seq_no,
+                    "session_id": session_id
+                }
+                
+                logger.info(f"📤 [DEPOSIT] กำลังยิง /replenishment/start: {replenishment_start_url}")
+                start_response = requests.post(replenishment_start_url, json=replenishment_payload, headers=headers, timeout=10)
+                start_response.raise_for_status()
+                start_data = start_response.json()
+                
+                if not start_data.get("success"):
+                    error_msg = start_data.get("error", "Unknown error from /replenishment/start")
+                    logger.error(f"❌ [DEPOSIT] /replenishment/start failed: {error_msg}")
                     now_bkk_err, now_utc_err = now_bangkok_and_utc()
                     deposit_requests_collection.update_one(
                         {"deposit_request_id": deposit_request_id},
                         {
                             "$set": {
                                 "status": "error",
-                                "error_message": f"Failed to send request: {str(e_send)}",
+                                "error_message": f"/replenishment/start failed: {error_msg}",
                                 "updated_at_bkk": now_bkk_err.isoformat(),
                                 "updated_at_utc": now_utc_err.isoformat(),
                             },
@@ -263,24 +267,72 @@ def handle_postback(event, line_bot_api):
                     )
                     text = (
                         f"❌ คำขอฝากเงิน\n"
-                        f"💰 จำนวนเงิน: {amount} บาท\n"
                         f"📌 เหตุผล: {reason_text}\n"
                         f"📍 สถานที่: {location_text}\n"
-                        f"⚠️ เกิดข้อผิดพลาดในการส่งคำขอ"
+                        f"⚠️ เกิดข้อผิดพลาดในการเริ่มต้นการฝากเงิน"
                     )
                 else:
-                    # In fire-and-forget mode, we don't wait for response
-                    # Status will be checked via polling
+                    logger.info(f"✅ [DEPOSIT] /replenishment/start สำเร็จ: {start_data}")
+                    # เก็บ session_id และ seq_no ใน user_session เพื่อใช้ในหน้าถัดไป
+                    user_session[user_id]["deposit_request_id"] = deposit_request_id
+                    user_session[user_id]["session_id"] = session_id
+                    user_session[user_id]["seq_no"] = seq_no
+                    user_session[user_id]["branch_base_url"] = base_url
+                    user_session[user_id]["replenishment_status"] = "active"
+                    
+                    # ส่งข้อความพร้อมลิงก์ไปหน้า UI สำหรับแสดงยอดเงิน
                     text = (
-                        f"✅ คำขอฝากเงิน\n"
-                        f"💰 จำนวนเงิน: {amount} บาท\n"
+                        f"✅ เริ่มต้นการฝากเงิน\n"
                         f"📌 เหตุผล: {reason_text}\n"
                         f"📍 สถานที่: {location_text}\n"
-                        f"🔄 กำลังดำเนินการ..."
+                        f"🔄 กรุณาเปิดลิงก์เพื่อดูยอดเงินที่ฝาก"
                     )
+                    reply_message = TemplateSendMessage(
+                        alt_text="เริ่มต้นการฝากเงิน",
+                        template=ButtonsTemplate(
+                            text=text,
+                            actions=[
+                                URITemplateAction(
+                                    label="ดูยอดเงินที่ฝาก",
+                                    uri=f"https://liff.line.me/2005595780-lYJx1JyJ/money/deposit-monitor?deposit_id={deposit_request_id}"
+                                )
+                            ]
+                        )
+                    )
+                    reset_state(user_id)
+                    return reply_message
+                    
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ [DEPOSIT] Request Exception: {str(e)}")
+                now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                deposit_requests_collection.update_one(
+                    {"deposit_request_id": deposit_request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "error_message": f"Request exception: {str(e)}",
+                            "updated_at_bkk": now_bkk_err.isoformat(),
+                            "updated_at_utc": now_utc_err.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk_err.isoformat(),
+                                "at_utc": now_utc_err.isoformat(),
+                                "date_bkk": now_bkk_err.date().isoformat(),
+                                "by": "line_bot_handler",
+                            }
+                        },
+                    },
+                )
+                text = (
+                    f"❌ คำขอฝากเงิน\n"
+                    f"📌 เหตุผล: {reason_text}\n"
+                    f"📍 สถานที่: {location_text}\n"
+                    f"⚠️ เกิดข้อผิดพลาดในการเริ่มต้นการฝากเงิน"
+                )
             except Exception as e:
-                logger.error(f"❌ [DEPOSIT] Error (ดนนิโกะ): {str(e)}")
-                # อัปเดตสถานะเป็น error
+                logger.error(f"❌ [DEPOSIT] Error (โนนิโกะ): {str(e)}")
                 now_bkk_err, now_utc_err = now_bangkok_and_utc()
                 date_bkk_err = now_bkk_err.date().isoformat()
                 deposit_requests_collection.update_one(
@@ -305,7 +357,6 @@ def handle_postback(event, line_bot_api):
                 )
                 text = (
                     f"⚠️ คำขอฝากเงิน\n"
-                    f"💰 จำนวนเงิน: {amount} บาท\n"
                     f"📌 เหตุผล: {reason_text}\n"
                     f"📍 สถานที่: {location_text}\n"
                     f"❌ เกิดข้อผิดพลาดในการฝากเงิน กรุณาลองใหม่อีกครั้ง"
@@ -324,12 +375,7 @@ def handle_postback(event, line_bot_api):
             
             location_text = "คลังห้องเย็น"
             branch_id = "Klangfrozen"
-            api_url = f"{get_rest_api_ci_base_for_branch('Klangfrozen')}/bot/deposit"
-            payload = {
-                "amount": int(amount),  # ✅ แปลงเป็น int
-                "machine_id": "line_bot_audit_kf",
-                "branch_id": branch_id
-            }
+            base_url = get_rest_api_ci_base_for_branch('Klangfrozen')
             
             # สร้าง deposit_request_id และ correlation headers
             deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
@@ -341,27 +387,30 @@ def handle_postback(event, line_bot_api):
             now_bkk, now_utc = now_bangkok_and_utc()
             date_bkk = now_bkk.date().isoformat()
             
+            # สร้าง session_id และ seq_no สำหรับ replenishment
+            session_id = deposit_request_id
+            seq_no = "1"
+            
             deposit_doc = {
                 "deposit_request_id": deposit_request_id,
                 "user_id": user_id,
-                "amount": int(amount),
+                "amount": int(amount) if amount else None,
                 "reason_code": reson,
                 "reason": reason_text,
                 "location": location_text,
                 "branch_id": branch_id,
-                "api_url": api_url,
-                "payload": payload,
                 "trace_id": trace_id,
                 "request_header_id": request_header_id,
-                "status": "pending",
+                "session_id": session_id,
+                "seq_no": seq_no,
+                "status": "replenishment_started",
                 "created_at_bkk": now_bkk.isoformat(),
                 "created_at_utc": now_utc.isoformat(),
                 "created_date_bkk": date_bkk,
-                "sale_id_for_machine": deposit_request_id,
                 "channel": "line_bot",
                 "status_history": [
                     {
-                        "status": "pending",
+                        "status": "replenishment_started",
                         "at_bkk": now_bkk.isoformat(),
                         "at_utc": now_utc.isoformat(),
                         "date_bkk": date_bkk,
@@ -376,23 +425,29 @@ def handle_postback(event, line_bot_api):
             except Exception as e:
                 logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
             
-            # ยิง API ไปยัง REST_API_CI (fire-and-forget mode)
+            # ยิง API /replenishment/start
             try:
-                # Fire-and-forget: send request without waiting for response
-                # Status will be checked via polling
-                try:
-                    requests.post(api_url, json=payload, headers=headers, timeout=10)
-                    logger.info(f"📤 [DEPOSIT] Request sent successfully (fire-and-forget)")
-                except Exception as e_send:
-                    logger.error(f"📤 [DEPOSIT] Failed to send request: {str(e_send)}")
-                    # อัปเดตสถานะเป็น error
+                replenishment_start_url = f"{base_url}/replenishment/start"
+                replenishment_payload = {
+                    "seq_no": seq_no,
+                    "session_id": session_id
+                }
+                
+                logger.info(f"📤 [DEPOSIT] กำลังยิง /replenishment/start: {replenishment_start_url}")
+                start_response = requests.post(replenishment_start_url, json=replenishment_payload, headers=headers, timeout=10)
+                start_response.raise_for_status()
+                start_data = start_response.json()
+                
+                if not start_data.get("success"):
+                    error_msg = start_data.get("error", "Unknown error from /replenishment/start")
+                    logger.error(f"❌ [DEPOSIT] /replenishment/start failed: {error_msg}")
                     now_bkk_err, now_utc_err = now_bangkok_and_utc()
                     deposit_requests_collection.update_one(
                         {"deposit_request_id": deposit_request_id},
                         {
                             "$set": {
                                 "status": "error",
-                                "error_message": f"Failed to send request: {str(e_send)}",
+                                "error_message": f"/replenishment/start failed: {error_msg}",
                                 "updated_at_bkk": now_bkk_err.isoformat(),
                                 "updated_at_utc": now_utc_err.isoformat(),
                             },
@@ -409,24 +464,72 @@ def handle_postback(event, line_bot_api):
                     )
                     text = (
                         f"❌ คำขอฝากเงิน\n"
-                        f"💰 จำนวนเงิน: {amount} บาท\n"
                         f"📌 เหตุผล: {reason_text}\n"
                         f"📍 สถานที่: {location_text}\n"
-                        f"⚠️ เกิดข้อผิดพลาดในการส่งคำขอ"
+                        f"⚠️ เกิดข้อผิดพลาดในการเริ่มต้นการฝากเงิน"
                     )
                 else:
-                    # In fire-and-forget mode, we don't wait for response
-                    # Status will be checked via polling
+                    logger.info(f"✅ [DEPOSIT] /replenishment/start สำเร็จ: {start_data}")
+                    # เก็บ session_id และ seq_no ใน user_session เพื่อใช้ในหน้าถัดไป
+                    user_session[user_id]["deposit_request_id"] = deposit_request_id
+                    user_session[user_id]["session_id"] = session_id
+                    user_session[user_id]["seq_no"] = seq_no
+                    user_session[user_id]["branch_base_url"] = base_url
+                    user_session[user_id]["replenishment_status"] = "active"
+                    
+                    # ส่งข้อความพร้อมลิงก์ไปหน้า UI สำหรับแสดงยอดเงิน
                     text = (
-                        f"✅ คำขอฝากเงิน\n"
-                        f"💰 จำนวนเงิน: {amount} บาท\n"
+                        f"✅ เริ่มต้นการฝากเงิน\n"
                         f"📌 เหตุผล: {reason_text}\n"
                         f"📍 สถานที่: {location_text}\n"
-                        f"🔄 กำลังดำเนินการ..."
+                        f"🔄 กรุณาเปิดลิงก์เพื่อดูยอดเงินที่ฝาก"
                     )
+                    reply_message = TemplateSendMessage(
+                        alt_text="เริ่มต้นการฝากเงิน",
+                        template=ButtonsTemplate(
+                            text=text,
+                            actions=[
+                                URITemplateAction(
+                                    label="ดูยอดเงินที่ฝาก",
+                                    uri=f"https://liff.line.me/2005595780-lYJx1JyJ/money/deposit-monitor?deposit_id={deposit_request_id}"
+                                )
+                            ]
+                        )
+                    )
+                    reset_state(user_id)
+                    return reply_message
+                    
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ [DEPOSIT] Request Exception: {str(e)}")
+                now_bkk_err, now_utc_err = now_bangkok_and_utc()
+                deposit_requests_collection.update_one(
+                    {"deposit_request_id": deposit_request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "error_message": f"Request exception: {str(e)}",
+                            "updated_at_bkk": now_bkk_err.isoformat(),
+                            "updated_at_utc": now_utc_err.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk_err.isoformat(),
+                                "at_utc": now_utc_err.isoformat(),
+                                "date_bkk": now_bkk_err.date().isoformat(),
+                                "by": "line_bot_handler",
+                            }
+                        },
+                    },
+                )
+                text = (
+                    f"❌ คำขอฝากเงิน\n"
+                    f"📌 เหตุผล: {reason_text}\n"
+                    f"📍 สถานที่: {location_text}\n"
+                    f"⚠️ เกิดข้อผิดพลาดในการเริ่มต้นการฝากเงิน"
+                )
             except Exception as e:
                 logger.error(f"❌ [DEPOSIT] Error (คลังห้องเย็น): {str(e)}")
-                # อัปเดตสถานะเป็น error
                 now_bkk_err, now_utc_err = now_bangkok_and_utc()
                 date_bkk_err = now_bkk_err.date().isoformat()
                 deposit_requests_collection.update_one(
@@ -451,7 +554,6 @@ def handle_postback(event, line_bot_api):
                 )
                 text = (
                     f"⚠️ คำขอฝากเงิน\n"
-                    f"💰 จำนวนเงิน: {amount} บาท\n"
                     f"📌 เหตุผล: {reason_text}\n"
                     f"📍 สถานที่: {location_text}\n"
                     f"❌ เกิดข้อผิดพลาดในการฝากเงิน กรุณาลองใหม่อีกครั้ง"
