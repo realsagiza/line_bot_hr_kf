@@ -707,23 +707,12 @@ def api_deposit_request():
         return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
 
     user_id = data.get("userId")
-    amount_raw = data.get("amount")
     reason_code = data.get("reason")
     reason_other = (data.get("reasonOther") or "").strip()
     location_text = (data.get("location") or "").strip()
 
     if not user_id:
         return jsonify({"status": "error", "message": "ไม่พบข้อมูลผู้ใช้จาก LIFF"}), 400
-
-    if not amount_raw:
-        return jsonify({"status": "error", "message": "กรุณาระบุจำนวนเงิน"}), 400
-
-    try:
-        amount_int = int(str(amount_raw).strip())
-        if amount_int <= 0:
-            raise ValueError()
-    except ValueError:
-        return jsonify({"status": "error", "message": "จำนวนเงินไม่ถูกต้อง"}), 400
 
     if reason_code not in ("change", "daily_sales", "other_deposit"):
         return jsonify({"status": "error", "message": "เหตุผลในการฝากเงินไม่ถูกต้อง"}), 400
@@ -769,7 +758,7 @@ def api_deposit_request():
     deposit_doc = {
         "deposit_request_id": deposit_request_id,
         "user_id": user_id,
-        "amount": amount_int,
+        "amount": None,  # ไม่ต้องระบุ amount เพราะจะอ่านจาก socket/latest
         "reason_code": reason_code,
         "reason": reason,
         "location": location_text,
