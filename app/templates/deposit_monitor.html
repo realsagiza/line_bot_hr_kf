@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>ติดตามการฝากเงิน</title>
   <style>
     :root {
@@ -155,10 +158,43 @@
       border-radius: 12px;
       margin: 16px 0;
     }
+    .refresh-btn {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: white;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      z-index: 1000;
+    }
+    .refresh-btn:active {
+      transform: scale(0.95);
+    }
+    .refresh-btn:hover {
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+    }
+    .refresh-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .hidden { display: none; }
   </style>
   <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
 </head>
 <body>
+  <button class="refresh-btn" id="refresh-btn" onclick="refreshPage()" title="รีเฟรชหน้าและล้าง cache">
+    🔄
+  </button>
   <div class="app">
     <div class="card">
       <div class="header">
@@ -222,8 +258,15 @@
 
     async function init() {
       try {
-        // ดึงข้อมูล deposit request
-        const response = await fetch(`/money/api/deposit-info?id=${encodeURIComponent(depositId)}`);
+        // ดึงข้อมูล deposit request (เพิ่ม timestamp เพื่อป้องกัน cache)
+        const cacheBuster = `?_t=${Date.now()}`;
+        const response = await fetch(`/money/api/deposit-info?id=${encodeURIComponent(depositId)}${cacheBuster}`, {
+          cache: 'no-cache',
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
         const data = await response.json();
         
         if (!response.ok || data.status !== 'ok') {
@@ -273,7 +316,15 @@
       }
 
       try {
-        const response = await fetch(`${branchBaseUrl}/socket/latest`);
+        // เพิ่ม timestamp เพื่อป้องกัน cache
+        const cacheBuster = `?_t=${Date.now()}`;
+        const response = await fetch(`${branchBaseUrl}/socket/latest${cacheBuster}`, {
+          cache: 'no-cache',
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
         const data = await response.json();
 
         if (data.success) {
@@ -400,6 +451,34 @@
       document.getElementById('loading').classList.add('hidden');
       document.getElementById('error').textContent = message;
       document.getElementById('error').classList.remove('hidden');
+    }
+
+    function refreshPage() {
+      const btn = document.getElementById('refresh-btn');
+      btn.disabled = true;
+      btn.textContent = '⏳';
+      
+      // หยุด polling
+      stopPolling();
+      
+      // Clear cache และ reload
+      // ใช้ timestamp เพื่อบังคับให้โหลดใหม่
+      const url = new URL(window.location.href);
+      url.searchParams.set('_t', Date.now().toString());
+      
+      // ลอง clear cache หลายวิธี
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          names.forEach(name => {
+            caches.delete(name);
+          });
+        });
+      }
+      
+      // Reload หน้า
+      setTimeout(() => {
+        window.location.href = url.toString();
+      }, 300);
     }
 
     // เริ่มต้นเมื่อโหลดหน้า
