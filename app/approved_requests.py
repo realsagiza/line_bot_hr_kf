@@ -165,34 +165,33 @@ def approve_request(request_id):
     # ✅ กรณีสถานที่รับเงินเป็น "โนนิโกะ"
     if location == "โนนิโกะ":
         base = get_rest_api_ci_base_for_branch("NONIKO")
-        api_url = f"{base}/bot/withdraw"
-        payload = {
-            "amount": int(amount),  # ✅ แปลงเป็น int
-            "machine_id": "line_bot_audit_kf",
-            "branch_id": "NONIKO"
-        }
         headers, meta = build_correlation_headers(sale_id=request_id)
         trace_id = meta["trace_id"]
         request_header_id = meta["request_id"]
 
-        logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
-
         try:
-            # Fire-and-forget: send request without waiting for response
-            # Status will be checked via polling
-            try:
-                requests.post(api_url, json=payload, headers=headers, timeout=10)
-                logger.info(f"📤 [WITHDRAW] Request sent successfully (fire-and-forget)")
-            except Exception as e_send:
-                logger.error(f"📤 [WITHDRAW] Failed to send request: {str(e_send)}")
-                # อัปเดตสถานะเป็น error
+            # Step 1: ยิง API /cashout/plan เพื่อคำนวณ denominations
+            plan_url = f"{base}/cashout/plan"
+            plan_payload = {
+                "amount": float(amount)  # แปลงเป็น float ตามที่ API ต้องการ
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {plan_url} ด้วย Payload: {plan_payload}")
+            
+            plan_response = requests.post(plan_url, json=plan_payload, headers=headers, timeout=10)
+            plan_response.raise_for_status()
+            plan_data = plan_response.json()
+            
+            if not plan_data.get("success"):
+                error_msg = plan_data.get("error", "Unknown error from /cashout/plan")
+                logger.error(f"❌ [CASHOUT] /cashout/plan failed: {error_msg}")
                 now_bkk, now_utc = now_bangkok_and_utc()
                 requests_collection.update_one(
                     {"request_id": request_id},
                     {
                         "$set": {
                             "status": "error",
-                            "machine_error": str(e_send),
+                            "machine_error": f"/cashout/plan failed: {error_msg}",
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
                         },
@@ -207,25 +206,95 @@ def approve_request(request_id):
                         },
                     },
                 )
-                return jsonify({"status": "error", "message": f"Failed to send request: {str(e_send)}"}), 500
+                return jsonify({"status": "error", "message": f"/cashout/plan failed: {error_msg}"}), 500
             
-            # In fire-and-forget mode, we don't wait for response
-            # Update status to pending and return immediately
+            # Step 2: รับ denominations จาก response
+            denominations = plan_data.get("denominations")
+            if not denominations:
+                logger.error(f"❌ [CASHOUT] ไม่พบ denominations ใน response จาก /cashout/plan")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": "ไม่พบ denominations ใน response",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": "ไม่พบ denominations ใน response"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ได้รับ denominations จาก /cashout/plan: {denominations}")
+            
+            # Step 3: ส่ง denominations ไปที่ /cashout/request
+            request_url = f"{base}/cashout/request"
+            request_payload = {
+                "denominations": denominations
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {request_url} ด้วย Payload: {request_payload}")
+            
+            request_response = requests.post(request_url, json=request_payload, headers=headers, timeout=10)
+            request_response.raise_for_status()
+            request_data = request_response.json()
+            
+            if not request_data.get("success"):
+                error_msg = request_data.get("error", "Unknown error from /cashout/request")
+                logger.error(f"❌ [CASHOUT] /cashout/request failed: {error_msg}")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": f"/cashout/request failed: {error_msg}",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": f"/cashout/request failed: {error_msg}"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ส่ง /cashout/request สำเร็จ: {request_data}")
+            
+            # Step 4: อัปเดตสถานะเป็น approved (สำเร็จ)
             now_bkk, now_utc = now_bangkok_and_utc()
             date_bkk = now_bkk.date().isoformat()
-
-            # ✅ อัปเดตสถานะเป็น "pending" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
+            
             requests_collection.update_one(
                 {"request_id": request_id},
                 {
                     "$set": {
-                        "status": "pending",
+                        "status": "approved",
                         "updated_at_bkk": now_bkk.isoformat(),
                         "updated_at_utc": now_utc.isoformat(),
+                        "denominations": denominations,
+                        "cashout_plan_response": plan_data,
+                        "cashout_request_response": request_data,
                     },
                     "$push": {
                         "status_history": {
-                            "status": "pending",
+                            "status": "approved",
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": date_bkk,
@@ -235,42 +304,86 @@ def approve_request(request_id):
                 },
             )
             
-            logger.info(f"✅ อนุมัติคำขอ {request_id} - Request sent (fire-and-forget)")
+            logger.info(f"✅ อนุมัติคำขอ {request_id} - Cashout สำเร็จ")
             return redirect("/money/approved-requests")
 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [CASHOUT] Request Exception: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": f"Request exception: {str(e)}",
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
+            return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
         except Exception as e:
-            logger.error(f"❌ [WITHDRAW] Error: {str(e)}")
+            logger.error(f"❌ [CASHOUT] Error: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": str(e),
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
             return jsonify({"status": "error", "message": str(e)}), 500
     elif location == "คลังห้องเย็น":
         base = get_rest_api_ci_base_for_branch("Klangfrozen")
-        api_url = f"{base}/bot/withdraw"
-        payload = {
-            "amount": int(amount),  # ✅ แปลงเป็น int
-            "machine_id": "line_bot_audit_kf",
-            "branch_id": "Klangfrozen"
-        }
         headers, meta = build_correlation_headers(sale_id=request_id)
         trace_id = meta["trace_id"]
         request_header_id = meta["request_id"]
 
-        logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
-
         try:
-            # Fire-and-forget: send request without waiting for response
-            # Status will be checked via polling
-            try:
-                requests.post(api_url, json=payload, headers=headers, timeout=10)
-                logger.info(f"📤 [WITHDRAW] Request sent successfully (fire-and-forget)")
-            except Exception as e_send:
-                logger.error(f"📤 [WITHDRAW] Failed to send request: {str(e_send)}")
-                # อัปเดตสถานะเป็น error
+            # Step 1: ยิง API /cashout/plan เพื่อคำนวณ denominations
+            plan_url = f"{base}/cashout/plan"
+            plan_payload = {
+                "amount": float(amount)  # แปลงเป็น float ตามที่ API ต้องการ
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {plan_url} ด้วย Payload: {plan_payload}")
+            
+            plan_response = requests.post(plan_url, json=plan_payload, headers=headers, timeout=10)
+            plan_response.raise_for_status()
+            plan_data = plan_response.json()
+            
+            if not plan_data.get("success"):
+                error_msg = plan_data.get("error", "Unknown error from /cashout/plan")
+                logger.error(f"❌ [CASHOUT] /cashout/plan failed: {error_msg}")
                 now_bkk, now_utc = now_bangkok_and_utc()
                 requests_collection.update_one(
                     {"request_id": request_id},
                     {
                         "$set": {
                             "status": "error",
-                            "machine_error": str(e_send),
+                            "machine_error": f"/cashout/plan failed: {error_msg}",
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
                         },
@@ -285,25 +398,95 @@ def approve_request(request_id):
                         },
                     },
                 )
-                return jsonify({"status": "error", "message": f"Failed to send request: {str(e_send)}"}), 500
+                return jsonify({"status": "error", "message": f"/cashout/plan failed: {error_msg}"}), 500
             
-            # In fire-and-forget mode, we don't wait for response
-            # Update status to pending and return immediately
+            # Step 2: รับ denominations จาก response
+            denominations = plan_data.get("denominations")
+            if not denominations:
+                logger.error(f"❌ [CASHOUT] ไม่พบ denominations ใน response จาก /cashout/plan")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": "ไม่พบ denominations ใน response",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": "ไม่พบ denominations ใน response"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ได้รับ denominations จาก /cashout/plan: {denominations}")
+            
+            # Step 3: ส่ง denominations ไปที่ /cashout/request
+            request_url = f"{base}/cashout/request"
+            request_payload = {
+                "denominations": denominations
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {request_url} ด้วย Payload: {request_payload}")
+            
+            request_response = requests.post(request_url, json=request_payload, headers=headers, timeout=10)
+            request_response.raise_for_status()
+            request_data = request_response.json()
+            
+            if not request_data.get("success"):
+                error_msg = request_data.get("error", "Unknown error from /cashout/request")
+                logger.error(f"❌ [CASHOUT] /cashout/request failed: {error_msg}")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": f"/cashout/request failed: {error_msg}",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": f"/cashout/request failed: {error_msg}"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ส่ง /cashout/request สำเร็จ: {request_data}")
+            
+            # Step 4: อัปเดตสถานะเป็น approved (สำเร็จ)
             now_bkk, now_utc = now_bangkok_and_utc()
             date_bkk = now_bkk.date().isoformat()
-
-            # ✅ อัปเดตสถานะเป็น "pending" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
+            
             requests_collection.update_one(
                 {"request_id": request_id},
                 {
                     "$set": {
-                        "status": "pending",
+                        "status": "approved",
                         "updated_at_bkk": now_bkk.isoformat(),
                         "updated_at_utc": now_utc.isoformat(),
+                        "denominations": denominations,
+                        "cashout_plan_response": plan_data,
+                        "cashout_request_response": request_data,
                     },
                     "$push": {
                         "status_history": {
-                            "status": "pending",
+                            "status": "approved",
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": date_bkk,
@@ -313,11 +496,56 @@ def approve_request(request_id):
                 },
             )
             
-            logger.info(f"✅ อนุมัติคำขอ {request_id} - Request sent (fire-and-forget)")
+            logger.info(f"✅ อนุมัติคำขอ {request_id} - Cashout สำเร็จ")
             return redirect("/money/approved-requests")
 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [CASHOUT] Request Exception: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": f"Request exception: {str(e)}",
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
+            return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
         except Exception as e:
-            logger.error(f"❌ [WITHDRAW] Error: {str(e)}")
+            logger.error(f"❌ [CASHOUT] Error: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": str(e),
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
             return jsonify({"status": "error", "message": str(e)}), 500
 
 @approved_requests_bp.route("/money/reject/<request_id>", methods=["POST"])
