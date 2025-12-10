@@ -527,6 +527,11 @@
     let isDepositEnded = false;
     let depositStartTime = null;
     let maxDepositAmount = 0; // เก็บยอดสูงสุดที่เคยได้รับ
+    let currentDepositUserId = null;
+    let currentDepositReason = null;
+    let currentDepositReasonCode = null;
+    let currentDepositReasonOther = null;
+    let currentDepositLocation = null;
 
     async function submitDepositForm(event) {
       event.preventDefault();
@@ -586,6 +591,12 @@
         currentBranchBaseUrl = data.branch_base_url;
         currentSessionId = data.session_id;
         currentSeqNo = data.seq_no;
+        
+        // เก็บข้อมูลสำหรับบันทึกตอนจบฝาก
+        currentDepositUserId = currentUserId;
+        currentDepositReasonCode = reason;
+        currentDepositReasonOther = reasonOther;
+        currentDepositLocation = location;
 
         if (!currentDepositId || !currentBranchBaseUrl) {
           throw new Error("ไม่ได้รับข้อมูลที่จำเป็นสำหรับการฝากเงิน");
@@ -720,7 +731,12 @@
           body: JSON.stringify({
             deposit_id: currentDepositId,
             session_id: currentSessionId,
-            seq_no: currentSeqNo
+            seq_no: currentSeqNo,
+            user_id: currentDepositUserId,
+            reason_code: currentDepositReasonCode,
+            reason_other: currentDepositReasonOther,
+            location: currentDepositLocation,
+            amount: maxDepositAmount // ส่งยอดสูงสุดที่เคยได้รับ
           })
         });
 
@@ -752,6 +768,10 @@
           currentSeqNo = null;
           maxDepositAmount = 0; // Reset ยอดสูงสุด
           depositStartTime = null;
+          currentDepositUserId = null;
+          currentDepositReasonCode = null;
+          currentDepositReasonOther = null;
+          currentDepositLocation = null;
           btn.disabled = false;
           btn.textContent = '✅ จบการฝาก';
         }, 3000);
@@ -785,7 +805,8 @@
           body: JSON.stringify({
             deposit_id: currentDepositId,
             session_id: currentSessionId,
-            seq_no: currentSeqNo
+            seq_no: currentSeqNo,
+            location: currentDepositLocation
           })
         });
 
@@ -817,6 +838,10 @@
           currentSeqNo = null;
           maxDepositAmount = 0; // Reset ยอดสูงสุด
           depositStartTime = null;
+          currentDepositUserId = null;
+          currentDepositReasonCode = null;
+          currentDepositReasonOther = null;
+          currentDepositLocation = null;
           btn.disabled = false;
           btn.textContent = '❌ ยกเลิก';
         }, 3000);
