@@ -526,6 +526,7 @@
     let currentSeqNo = null;
     let isDepositEnded = false;
     let depositStartTime = null;
+    let maxDepositAmount = 0; // เก็บยอดสูงสุดที่เคยได้รับ
 
     async function submitDepositForm(event) {
       event.preventDefault();
@@ -600,6 +601,7 @@
         // ตั้งค่าเวลาที่เริ่มฝากเงิน
         depositStartTime = Date.now();
         isDepositEnded = false;
+        maxDepositAmount = 0; // Reset ยอดสูงสุดเมื่อเริ่มฝากเงินใหม่
 
         // เริ่ม polling ยอดเงิน
         startDepositPolling();
@@ -660,9 +662,18 @@
           const amount = data.amount_baht || 0;
           const ts = data.ts || 0;
           
-          document.getElementById('deposit-amount-display').textContent = amount.toLocaleString('th-TH');
+          // อัพเดทยอดเฉพาะเมื่อยอดใหม่มากกว่ายอดสูงสุดที่เคยได้รับ
+          if (amount > maxDepositAmount) {
+            maxDepositAmount = amount;
+            console.log(`✅ อัพเดทยอดใหม่: ${amount} บาท (ยอดสูงสุด: ${maxDepositAmount} บาท)`);
+          } else if (amount < maxDepositAmount) {
+            console.log(`⏸️ ยอดใหม่น้อยกว่ายอดสูงสุด: ${amount} < ${maxDepositAmount} (ไม่อัพเดท)`);
+          }
           
-          if (amount > 0 && ts > 0) {
+          // แสดงยอดสูงสุดที่เคยได้รับ
+          document.getElementById('deposit-amount-display').textContent = maxDepositAmount.toLocaleString('th-TH');
+          
+          if (maxDepositAmount > 0 && ts > 0) {
             const updateTime = new Date(ts * 1000);
             const timeStr = updateTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             document.getElementById('deposit-status-text').textContent = `กำลังฝากเงิน... (อัปเดตล่าสุด: ${timeStr})`;
@@ -739,6 +750,8 @@
           currentBranchBaseUrl = null;
           currentSessionId = null;
           currentSeqNo = null;
+          maxDepositAmount = 0; // Reset ยอดสูงสุด
+          depositStartTime = null;
           btn.disabled = false;
           btn.textContent = '✅ จบการฝาก';
         }, 3000);
@@ -802,6 +815,8 @@
           currentBranchBaseUrl = null;
           currentSessionId = null;
           currentSeqNo = null;
+          maxDepositAmount = 0; // Reset ยอดสูงสุด
+          depositStartTime = null;
           btn.disabled = false;
           btn.textContent = '❌ ยกเลิก';
         }, 3000);
