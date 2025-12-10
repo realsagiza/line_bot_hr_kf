@@ -744,28 +744,25 @@ def api_deposit_request():
     else:
         reason = reason_code
 
-    # กำหนด endpoint และ branch_id ตามสาขา (ตามโค้ดเดิมใน handlers)
+    # กำหนด endpoint และ branch_id ตามสาขา
     if location_text == "โนนิโกะ":
         base = get_rest_api_ci_base_for_branch("NONIKO")
-        api_url = f"{base}/bot/deposit"
         branch_id = "NONIKO"
     else:  # คลังห้องเย็น
         base = get_rest_api_ci_base_for_branch("Klangfrozen")
-        api_url = f"{base}/bot/deposit"
         branch_id = "Klangfrozen"
 
-    payload = {
-        "amount": amount_int,
-        "machine_id": "line_bot_audit_kf",
-        "branch_id": branch_id,
-    }
     # Use deposit_request_id as sale_id for downstream correlation
     deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
     headers, meta = build_correlation_headers(sale_id=deposit_request_id)
     trace_id = meta["trace_id"]
     request_header_id = meta["request_id"]
 
-    # สร้าง log คำขอฝากเงินก่อน (pending)
+    # สร้าง session_id และ seq_no สำหรับ replenishment
+    session_id = deposit_request_id
+    seq_no = "1"
+
+    # สร้าง log คำขอฝากเงินก่อน (replenishment_started)
     now_bkk, now_utc = now_bangkok_and_utc()
     date_bkk = now_bkk.date().isoformat()
 
@@ -777,11 +774,11 @@ def api_deposit_request():
         "reason": reason,
         "location": location_text,
         "branch_id": branch_id,
-        "api_url": api_url,
-        "payload": payload,
         "trace_id": trace_id,
         "request_header_id": request_header_id,
-        "status": "pending",
+        "session_id": session_id,
+        "seq_no": seq_no,
+        "status": "replenishment_started",
         "created_at_bkk": now_bkk.isoformat(),
         "created_at_utc": now_utc.isoformat(),
         "created_date_bkk": date_bkk,
@@ -804,87 +801,29 @@ def api_deposit_request():
         logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
         return jsonify({"status": "error", "message": "ไม่สามารถบันทึกคำขอฝากเงินได้"}), 500
 
-    # ประมวลผล async ใน background thread (fire-and-forget mode)
-    def _process_deposit_async():
-        logger.info(f"📤 [DEPOSIT] (async) ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
-        try:
-            # Fire-and-forget: send request without waiting for response
-            # Status will be checked via polling
-            try:
-                requests.post(api_url, json=payload, headers=headers, timeout=10)
-                logger.info(f"📤 [DEPOSIT] (async) Request sent successfully")
-            except Exception as e_send:
-                logger.error(f"📤 [DEPOSIT] (async) Failed to send request: {str(e_send)}")
-                # Update status to error
-                try:
-                    now_bkk_err, now_utc_err = now_bangkok_and_utc()
-                    date_bkk_err = now_bkk_err.date().isoformat()
-                    deposit_requests_collection.update_one(
-                        {"deposit_request_id": deposit_request_id},
-                        {
-                            "$set": {
-                                "status": "error",
-                                "error_message": f"Failed to send request: {str(e_send)}",
-                                "updated_at_bkk": now_bkk_err.isoformat(),
-                                "updated_at_utc": now_utc_err.isoformat(),
-                            },
-                            "$push": {
-                                "status_history": {
-                                    "status": "error",
-                                    "at_bkk": now_bkk_err.isoformat(),
-                                    "at_utc": now_utc_err.isoformat(),
-                                    "date_bkk": date_bkk_err,
-                                    "by": "deposit_api_async",
-                                }
-                            },
-                        },
-                    )
-                except Exception:
-                    pass
-                return
-            
-            # In fire-and-forget mode, we don't wait for response
-            # Status will be checked via polling
-            return
-        except Exception as e_http:
-            # Handle any unexpected errors
-            logger.error(f"📤 [DEPOSIT] (async) Unexpected error: {str(e_http)}")
-            try:
-                now_bkk_err, now_utc_err = now_bangkok_and_utc()
-                date_bkk_err = now_bkk_err.date().isoformat()
-                deposit_requests_collection.update_one(
-                    {"deposit_request_id": deposit_request_id},
-                    {
-                        "$set": {
-                            "status": "error",
-                            "error_message": f"Unexpected error: {str(e_http)}",
-                            "updated_at_bkk": now_bkk_err.isoformat(),
-                            "updated_at_utc": now_utc_err.isoformat(),
-                        },
-                        "$push": {
-                            "status_history": {
-                                "status": "error",
-                                "at_bkk": now_bkk_err.isoformat(),
-                                "at_utc": now_utc_err.isoformat(),
-                                "date_bkk": date_bkk_err,
-                                "by": "deposit_api_async",
-                            }
-                        },
-                    },
-                )
-            except Exception:
-                pass
-            return
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ [DEPOSIT] (async) API Error: {str(e)}")
+    # ยิง API /replenishment/start
+    try:
+        replenishment_start_url = f"{base}/replenishment/start"
+        replenishment_payload = {
+            "seq_no": seq_no,
+            "session_id": session_id
+        }
+        
+        logger.info(f"📤 [DEPOSIT] กำลังยิง /replenishment/start: {replenishment_start_url}")
+        start_response = requests.post(replenishment_start_url, json=replenishment_payload, headers=headers, timeout=10)
+        start_response.raise_for_status()
+        start_data = start_response.json()
+        
+        if not start_data.get("success"):
+            error_msg = start_data.get("error", "Unknown error from /replenishment/start")
+            logger.error(f"❌ [DEPOSIT] /replenishment/start failed: {error_msg}")
             now_bkk_err, now_utc_err = now_bangkok_and_utc()
-            date_bkk_err = now_bkk_err.date().isoformat()
             deposit_requests_collection.update_one(
                 {"deposit_request_id": deposit_request_id},
                 {
                     "$set": {
                         "status": "error",
-                        "error_message": str(e),
+                        "error_message": f"/replenishment/start failed: {error_msg}",
                         "updated_at_bkk": now_bkk_err.isoformat(),
                         "updated_at_utc": now_utc_err.isoformat(),
                     },
@@ -893,15 +832,75 @@ def api_deposit_request():
                             "status": "error",
                             "at_bkk": now_bkk_err.isoformat(),
                             "at_utc": now_utc_err.isoformat(),
-                            "date_bkk": date_bkk_err,
-                            "by": "deposit_api_async",
+                            "date_bkk": now_bkk_err.date().isoformat(),
+                            "by": "deposit_api",
                         }
                     },
                 },
             )
+            return jsonify({"status": "error", "message": f"/replenishment/start failed: {error_msg}"}), 500
+        
+        logger.info(f"✅ [DEPOSIT] /replenishment/start สำเร็จ: {start_data}")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [DEPOSIT] Request Exception: {str(e)}")
+        now_bkk_err, now_utc_err = now_bangkok_and_utc()
+        deposit_requests_collection.update_one(
+            {"deposit_request_id": deposit_request_id},
+            {
+                "$set": {
+                    "status": "error",
+                    "error_message": f"Request exception: {str(e)}",
+                    "updated_at_bkk": now_bkk_err.isoformat(),
+                    "updated_at_utc": now_utc_err.isoformat(),
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "error",
+                        "at_bkk": now_bkk_err.isoformat(),
+                        "at_utc": now_utc_err.isoformat(),
+                        "date_bkk": now_bkk_err.date().isoformat(),
+                        "by": "deposit_api",
+                    }
+                },
+            },
+        )
+        return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"❌ [DEPOSIT] Error: {str(e)}")
+        now_bkk_err, now_utc_err = now_bangkok_and_utc()
+        deposit_requests_collection.update_one(
+            {"deposit_request_id": deposit_request_id},
+            {
+                "$set": {
+                    "status": "error",
+                    "error_message": str(e),
+                    "updated_at_bkk": now_bkk_err.isoformat(),
+                    "updated_at_utc": now_utc_err.isoformat(),
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "error",
+                        "at_bkk": now_bkk_err.isoformat(),
+                        "at_utc": now_utc_err.isoformat(),
+                        "date_bkk": now_bkk_err.date().isoformat(),
+                        "by": "deposit_api",
+                    }
+                },
+            },
+        )
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-    threading.Thread(target=_process_deposit_async, name=f"deposit-{deposit_request_id}", daemon=True).start()
-    return jsonify({"status": "ok", "deposit_request_id": deposit_request_id})
+    # Return deposit_request_id และข้อมูลที่จำเป็นสำหรับหน้า UI
+    return jsonify({
+        "status": "ok",
+        "deposit_request_id": deposit_request_id,
+        "session_id": session_id,
+        "seq_no": seq_no,
+        "branch_base_url": base,
+        "location": location_text,
+        "reason": reason
+    })
 
 @approved_requests_bp.route("/money/api/deposit-status", methods=["GET"])
 def api_deposit_status():
