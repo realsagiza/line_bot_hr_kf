@@ -1,6 +1,7 @@
 import uuid
 import logging
 import requests
+import time
 from pymongo import MongoClient
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, ButtonsTemplate, TemplateSendMessage, PostbackAction, URITemplateAction
@@ -287,6 +288,8 @@ def handle_postback(event, line_bot_api):
                         f"📍 สถานที่: {location_text}\n"
                         f"🔄 กรุณาเปิดลิงก์เพื่อดูยอดเงินที่ฝาก"
                     )
+                    # เพิ่ม timestamp เพื่อป้องกัน cache
+                    timestamp = int(time.time() * 1000)
                     reply_message = TemplateSendMessage(
                         alt_text="เริ่มต้นการฝากเงิน",
                         template=ButtonsTemplate(
@@ -294,7 +297,7 @@ def handle_postback(event, line_bot_api):
                             actions=[
                                 URITemplateAction(
                                     label="ดูยอดเงินที่ฝาก",
-                                    uri=f"https://liff.line.me/2005595780-lYJx1JyJ/money/deposit-monitor?deposit_id={deposit_request_id}"
+                                    uri=f"https://liff.line.me/2005595780-lYJx1JyJ/money/deposit-monitor?deposit_id={deposit_request_id}&_t={timestamp}"
                                 )
                             ]
                         )
@@ -484,6 +487,8 @@ def handle_postback(event, line_bot_api):
                         f"📍 สถานที่: {location_text}\n"
                         f"🔄 กรุณาเปิดลิงก์เพื่อดูยอดเงินที่ฝาก"
                     )
+                    # เพิ่ม timestamp เพื่อป้องกัน cache
+                    timestamp = int(time.time() * 1000)
                     reply_message = TemplateSendMessage(
                         alt_text="เริ่มต้นการฝากเงิน",
                         template=ButtonsTemplate(
@@ -491,7 +496,7 @@ def handle_postback(event, line_bot_api):
                             actions=[
                                 URITemplateAction(
                                     label="ดูยอดเงินที่ฝาก",
-                                    uri=f"https://liff.line.me/2005595780-lYJx1JyJ/money/deposit-monitor?deposit_id={deposit_request_id}"
+                                    uri=f"https://liff.line.me/2005595780-lYJx1JyJ/money/deposit-monitor?deposit_id={deposit_request_id}&_t={timestamp}"
                                 )
                             ]
                         )

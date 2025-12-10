@@ -483,6 +483,13 @@
 
     // เริ่มต้นเมื่อโหลดหน้า
     window.addEventListener('load', () => {
+      // เพิ่ม timestamp ใน URL ถ้ายังไม่มี เพื่อป้องกัน cache
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('_t')) {
+        url.searchParams.set('_t', Date.now().toString());
+        // Replace URL โดยไม่ reload (เพื่อไม่ให้เกิด loop)
+        window.history.replaceState({}, '', url.toString());
+      }
       init();
     });
 

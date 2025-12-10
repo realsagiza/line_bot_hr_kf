@@ -1120,4 +1120,10 @@ def api_replenishment_cancel():
 @approved_requests_bp.route("/money/deposit-monitor", methods=["GET"])
 def deposit_monitor():
     """หน้า UI สำหรับติดตามการฝากเงิน"""
-    return render_template("deposit_monitor.html")
+    from flask import make_response
+    # เพิ่ม headers เพื่อป้องกัน cache
+    response = make_response(render_template("deposit_monitor.html"))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
