@@ -327,22 +327,15 @@
             {% if deposit_requests %}
             <div class="list">
                 {% for dr in deposit_requests %}
-                <div class="item {% if dr.status == 'replenishment_started' or dr.status == 'completed' %}approved{% elif dr.status == 'cancelled' or dr.status == 'error' %}rejected{% endif %}">
+                <div class="item approved">
                     <div class="item-header">
                         <div class="item-id">หมายเลขคำขอ: {{ dr.deposit_request_id }}</div>
-                        <div class="status-badge {% if dr.status == 'replenishment_started' or dr.status == 'completed' %}approved{% elif dr.status == 'cancelled' or dr.status == 'error' %}rejected{% else %}pending{% endif %}">
-                            {% if dr.status == 'replenishment_initiated' %}เริ่มต้นแล้ว
-                            {% elif dr.status == 'replenishment_started' %}กำลังฝาก
-                            {% elif dr.status == 'completed' %}เสร็จสิ้น
-                            {% elif dr.status == 'cancelled' %}ยกเลิก
-                            {% elif dr.status == 'error' %}เกิดข้อผิดพลาด
-                            {% else %}{{ dr.status }}{% endif %}
-                        </div>
+                        <div class="status-badge approved">เสร็จสิ้น</div>
                     </div>
                     <div class="item-row">
                         <span>จำนวนเงิน</span>
                         <span class="value">
-                            {% if dr.amount %}{{ dr.amount }} บาท{% else %}รอการนับยอด{% endif %}
+                            {% if dr.amount %}{{ dr.amount }} บาท{% else %}-{% endif %}
                         </span>
                     </div>
                     <div class="item-row">
@@ -354,17 +347,11 @@
                         <span class="value">{{ dr.location }}</span>
                     </div>
                     <div class="item-row">
-                        <span>วันที่ขอ (เวลาไทย)</span>
+                        <span>วันที่ฝาก (เวลาไทย)</span>
                         <span class="value">
                             {{ dr.created_date_bkk if dr.created_date_bkk is defined else '' }}
                         </span>
                     </div>
-                    {% if dr.error_message %}
-                    <div class="item-row">
-                        <span>ข้อผิดพลาด</span>
-                        <span class="value" style="color: #b91c1c;">{{ dr.error_message }}</span>
-                    </div>
-                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
