@@ -35,6 +35,54 @@ def _is_withdraw_success(response_json: dict) -> bool:
     except Exception:
         return False
 
+def save_expense_to_transactions(request_data, location, amount, reason, date_bkk, now_bkk, now_utc):
+    """
+    บันทึกค่าใช้จ่ายเงินสดลง transactions_collection สำหรับใช้ในระบบบัญชี
+    ตามรูปแบบที่ใช้ใน klangfrozen (หน้า สรุปยอดเงินสิ้นวัน)
+    
+    Args:
+        request_data: ข้อมูลคำขอเบิกเงิน
+        location: สถานที่ (คลังห้องเย็น หรือ โนนิโกะ)
+        amount: จำนวนเงิน
+        reason: เหตุผลในการเบิกเงิน
+        date_bkk: วันที่อนุมัติ (YYYY-MM-DD)
+        now_bkk: datetime object เวลาไทย
+        now_utc: datetime object UTC
+    """
+    try:
+        # แปลง selectedStorage ตาม location
+        selected_storage = location  # ใช้ location ตรงๆ (คลังห้องเย็น หรือ โนนิโกะ)
+        
+        # สร้าง tag "เบิกเงินผ่านไลน์"
+        expense_tag = {
+            "label": "เบิกเงินผ่านไลน์",
+            "color": "primary",
+            "bgColor": "#1976d2"
+        }
+        
+        # สร้างข้อมูลค่าใช้จ่ายเงินสด
+        expense_doc = {
+            "type": "expense",
+            "selectedStorage": selected_storage,
+            "selectedDate": date_bkk,
+            "name": reason,
+            "amount": float(amount),
+            "tags": [expense_tag],
+            "receiptAttached": False,
+            "request_id": request_data.get("request_id"),  # เชื่อมโยงกับคำขอเบิกเงิน
+            "user_id": request_data.get("user_id"),
+            "created_at_bkk": now_bkk.isoformat(),
+            "created_at_utc": now_utc.isoformat(),
+        }
+        
+        # บันทึกลง transactions_collection
+        transactions_collection.insert_one(expense_doc)
+        logger.info(f"✅ บันทึกค่าใช้จ่ายเงินสดลง transactions_collection สำเร็จ: request_id={request_data.get('request_id')}, location={selected_storage}, amount={amount}")
+        
+    except Exception as e:
+        logger.error(f"❌ ไม่สามารถบันทึกค่าใช้จ่ายเงินสดลง transactions_collection ได้: {str(e)}")
+        # ไม่ throw error เพราะการบันทึกค่าใช้จ่ายไม่ควรทำให้การอนุมัติล้มเหลว
+
 
 @approved_requests_bp.route("/money/liff", methods=["GET"])
 def money_liff_home():
@@ -83,24 +131,25 @@ def request_status():
     approved_requests = [r for r in all_requests if r.get("status") == "approved"]
     rejected_requests = [r for r in all_requests if r.get("status") == "rejected"]
 
-    # ข้อมูลฝากเงิน (deposit) จาก collection transactions
-    deposit_query = {
-        "direction": "deposit",
-        "transaction_date_bkk": selected_date,
+    # ข้อมูลฝากเงิน (deposit) จาก collection deposit_requests (ระบบใหม่ - replenishment)
+    # แสดงเฉพาะรายการที่เสร็จสิ้นแล้ว (status = "completed")
+    deposit_requests_query = {
+        "created_date_bkk": selected_date,
+        "status": "completed",  # แสดงเฉพาะรายการที่เสร็จสิ้นแล้ว
     }
     if selected_branch in ("คลังห้องเย็น", "โนนิโกะ"):
-        deposit_query["selectedStorage"] = selected_branch
+        deposit_requests_query["location"] = selected_branch
 
-    deposit_cursor = transactions_collection.find(deposit_query, {"_id": 0}).sort(
-        "transaction_at_bkk", -1
-    )
-    deposit_transactions = list(deposit_cursor)
+    deposit_requests_cursor = deposit_requests_collection.find(
+        deposit_requests_query, {"_id": 0}
+    ).sort("created_at_bkk", -1)
+    deposit_requests = list(deposit_requests_cursor)
 
     return render_template(
         "request_status.html",
         approved_requests=approved_requests,
         rejected_requests=rejected_requests,
-        deposit_transactions=deposit_transactions,
+        deposit_requests=deposit_requests,
         selected_date=selected_date,
         selected_branch=selected_branch,
     )
@@ -165,34 +214,33 @@ def approve_request(request_id):
     # ✅ กรณีสถานที่รับเงินเป็น "โนนิโกะ"
     if location == "โนนิโกะ":
         base = get_rest_api_ci_base_for_branch("NONIKO")
-        api_url = f"{base}/bot/withdraw"
-        payload = {
-            "amount": int(amount),  # ✅ แปลงเป็น int
-            "machine_id": "line_bot_audit_kf",
-            "branch_id": "NONIKO"
-        }
         headers, meta = build_correlation_headers(sale_id=request_id)
         trace_id = meta["trace_id"]
         request_header_id = meta["request_id"]
 
-        logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
-
         try:
-            # Fire-and-forget: send request without waiting for response
-            # Status will be checked via polling
-            try:
-                requests.post(api_url, json=payload, headers=headers, timeout=10)
-                logger.info(f"📤 [WITHDRAW] Request sent successfully (fire-and-forget)")
-            except Exception as e_send:
-                logger.error(f"📤 [WITHDRAW] Failed to send request: {str(e_send)}")
-                # อัปเดตสถานะเป็น error
+            # Step 1: ยิง API /cashout/plan เพื่อคำนวณ denominations
+            plan_url = f"{base}/cashout/plan"
+            plan_payload = {
+                "amount": float(amount)  # แปลงเป็น float ตามที่ API ต้องการ
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {plan_url} ด้วย Payload: {plan_payload}")
+            
+            plan_response = requests.post(plan_url, json=plan_payload, headers=headers, timeout=10)
+            plan_response.raise_for_status()
+            plan_data = plan_response.json()
+            
+            if not plan_data.get("success"):
+                error_msg = plan_data.get("error", "Unknown error from /cashout/plan")
+                logger.error(f"❌ [CASHOUT] /cashout/plan failed: {error_msg}")
                 now_bkk, now_utc = now_bangkok_and_utc()
                 requests_collection.update_one(
                     {"request_id": request_id},
                     {
                         "$set": {
                             "status": "error",
-                            "machine_error": str(e_send),
+                            "machine_error": f"/cashout/plan failed: {error_msg}",
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
                         },
@@ -207,25 +255,95 @@ def approve_request(request_id):
                         },
                     },
                 )
-                return jsonify({"status": "error", "message": f"Failed to send request: {str(e_send)}"}), 500
+                return jsonify({"status": "error", "message": f"/cashout/plan failed: {error_msg}"}), 500
             
-            # In fire-and-forget mode, we don't wait for response
-            # Update status to pending and return immediately
+            # Step 2: รับ denominations จาก response
+            denominations = plan_data.get("denominations")
+            if not denominations:
+                logger.error(f"❌ [CASHOUT] ไม่พบ denominations ใน response จาก /cashout/plan")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": "ไม่พบ denominations ใน response",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": "ไม่พบ denominations ใน response"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ได้รับ denominations จาก /cashout/plan: {denominations}")
+            
+            # Step 3: ส่ง denominations ไปที่ /cashout/request
+            request_url = f"{base}/cashout/request"
+            request_payload = {
+                "denominations": denominations
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {request_url} ด้วย Payload: {request_payload}")
+            
+            request_response = requests.post(request_url, json=request_payload, headers=headers, timeout=10)
+            request_response.raise_for_status()
+            request_data = request_response.json()
+            
+            if not request_data.get("success"):
+                error_msg = request_data.get("error", "Unknown error from /cashout/request")
+                logger.error(f"❌ [CASHOUT] /cashout/request failed: {error_msg}")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": f"/cashout/request failed: {error_msg}",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": f"/cashout/request failed: {error_msg}"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ส่ง /cashout/request สำเร็จ: {request_data}")
+            
+            # Step 4: อัปเดตสถานะเป็น approved (สำเร็จ)
             now_bkk, now_utc = now_bangkok_and_utc()
             date_bkk = now_bkk.date().isoformat()
-
-            # ✅ อัปเดตสถานะเป็น "pending" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
+            
             requests_collection.update_one(
                 {"request_id": request_id},
                 {
                     "$set": {
-                        "status": "pending",
+                        "status": "approved",
                         "updated_at_bkk": now_bkk.isoformat(),
                         "updated_at_utc": now_utc.isoformat(),
+                        "denominations": denominations,
+                        "cashout_plan_response": plan_data,
+                        "cashout_request_response": request_data,
                     },
                     "$push": {
                         "status_history": {
-                            "status": "pending",
+                            "status": "approved",
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": date_bkk,
@@ -235,42 +353,89 @@ def approve_request(request_id):
                 },
             )
             
-            logger.info(f"✅ อนุมัติคำขอ {request_id} - Request sent (fire-and-forget)")
+            # บันทึกค่าใช้จ่ายเงินสดลง transactions_collection สำหรับใช้ในระบบบัญชี
+            save_expense_to_transactions(request_data, location, amount, reason, date_bkk, now_bkk, now_utc)
+            
+            logger.info(f"✅ อนุมัติคำขอ {request_id} - Cashout สำเร็จ")
             return redirect("/money/approved-requests")
 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [CASHOUT] Request Exception: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": f"Request exception: {str(e)}",
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
+            return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
         except Exception as e:
-            logger.error(f"❌ [WITHDRAW] Error: {str(e)}")
+            logger.error(f"❌ [CASHOUT] Error: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": str(e),
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
             return jsonify({"status": "error", "message": str(e)}), 500
     elif location == "คลังห้องเย็น":
         base = get_rest_api_ci_base_for_branch("Klangfrozen")
-        api_url = f"{base}/bot/withdraw"
-        payload = {
-            "amount": int(amount),  # ✅ แปลงเป็น int
-            "machine_id": "line_bot_audit_kf",
-            "branch_id": "Klangfrozen"
-        }
         headers, meta = build_correlation_headers(sale_id=request_id)
         trace_id = meta["trace_id"]
         request_header_id = meta["request_id"]
 
-        logger.info(f"📤 กำลังส่ง API ไปยัง {api_url} ด้วย Payload: {payload}")
-
         try:
-            # Fire-and-forget: send request without waiting for response
-            # Status will be checked via polling
-            try:
-                requests.post(api_url, json=payload, headers=headers, timeout=10)
-                logger.info(f"📤 [WITHDRAW] Request sent successfully (fire-and-forget)")
-            except Exception as e_send:
-                logger.error(f"📤 [WITHDRAW] Failed to send request: {str(e_send)}")
-                # อัปเดตสถานะเป็น error
+            # Step 1: ยิง API /cashout/plan เพื่อคำนวณ denominations
+            plan_url = f"{base}/cashout/plan"
+            plan_payload = {
+                "amount": float(amount)  # แปลงเป็น float ตามที่ API ต้องการ
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {plan_url} ด้วย Payload: {plan_payload}")
+            
+            plan_response = requests.post(plan_url, json=plan_payload, headers=headers, timeout=10)
+            plan_response.raise_for_status()
+            plan_data = plan_response.json()
+            
+            if not plan_data.get("success"):
+                error_msg = plan_data.get("error", "Unknown error from /cashout/plan")
+                logger.error(f"❌ [CASHOUT] /cashout/plan failed: {error_msg}")
                 now_bkk, now_utc = now_bangkok_and_utc()
                 requests_collection.update_one(
                     {"request_id": request_id},
                     {
                         "$set": {
                             "status": "error",
-                            "machine_error": str(e_send),
+                            "machine_error": f"/cashout/plan failed: {error_msg}",
                             "updated_at_bkk": now_bkk.isoformat(),
                             "updated_at_utc": now_utc.isoformat(),
                         },
@@ -285,25 +450,95 @@ def approve_request(request_id):
                         },
                     },
                 )
-                return jsonify({"status": "error", "message": f"Failed to send request: {str(e_send)}"}), 500
+                return jsonify({"status": "error", "message": f"/cashout/plan failed: {error_msg}"}), 500
             
-            # In fire-and-forget mode, we don't wait for response
-            # Update status to pending and return immediately
+            # Step 2: รับ denominations จาก response
+            denominations = plan_data.get("denominations")
+            if not denominations:
+                logger.error(f"❌ [CASHOUT] ไม่พบ denominations ใน response จาก /cashout/plan")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": "ไม่พบ denominations ใน response",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": "ไม่พบ denominations ใน response"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ได้รับ denominations จาก /cashout/plan: {denominations}")
+            
+            # Step 3: ส่ง denominations ไปที่ /cashout/request
+            request_url = f"{base}/cashout/request"
+            request_payload = {
+                "denominations": denominations
+            }
+            
+            logger.info(f"📤 [CASHOUT] กำลังส่ง API ไปยัง {request_url} ด้วย Payload: {request_payload}")
+            
+            request_response = requests.post(request_url, json=request_payload, headers=headers, timeout=10)
+            request_response.raise_for_status()
+            request_data = request_response.json()
+            
+            if not request_data.get("success"):
+                error_msg = request_data.get("error", "Unknown error from /cashout/request")
+                logger.error(f"❌ [CASHOUT] /cashout/request failed: {error_msg}")
+                now_bkk, now_utc = now_bangkok_and_utc()
+                requests_collection.update_one(
+                    {"request_id": request_id},
+                    {
+                        "$set": {
+                            "status": "error",
+                            "machine_error": f"/cashout/request failed: {error_msg}",
+                            "updated_at_bkk": now_bkk.isoformat(),
+                            "updated_at_utc": now_utc.isoformat(),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "error",
+                                "at_bkk": now_bkk.isoformat(),
+                                "at_utc": now_utc.isoformat(),
+                                "date_bkk": now_bkk.date().isoformat(),
+                                "by": "approver_ui",
+                            }
+                        },
+                    },
+                )
+                return jsonify({"status": "error", "message": f"/cashout/request failed: {error_msg}"}), 500
+            
+            logger.info(f"✅ [CASHOUT] ส่ง /cashout/request สำเร็จ: {request_data}")
+            
+            # Step 4: อัปเดตสถานะเป็น approved (สำเร็จ)
             now_bkk, now_utc = now_bangkok_and_utc()
             date_bkk = now_bkk.date().isoformat()
-
-            # ✅ อัปเดตสถานะเป็น "pending" ในฐานข้อมูล พร้อมเก็บเวลาและประวัติสถานะ
+            
             requests_collection.update_one(
                 {"request_id": request_id},
                 {
                     "$set": {
-                        "status": "pending",
+                        "status": "approved",
                         "updated_at_bkk": now_bkk.isoformat(),
                         "updated_at_utc": now_utc.isoformat(),
+                        "denominations": denominations,
+                        "cashout_plan_response": plan_data,
+                        "cashout_request_response": request_data,
                     },
                     "$push": {
                         "status_history": {
-                            "status": "pending",
+                            "status": "approved",
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": date_bkk,
@@ -313,11 +548,59 @@ def approve_request(request_id):
                 },
             )
             
-            logger.info(f"✅ อนุมัติคำขอ {request_id} - Request sent (fire-and-forget)")
+            # บันทึกค่าใช้จ่ายเงินสดลง transactions_collection สำหรับใช้ในระบบบัญชี
+            save_expense_to_transactions(request_data, location, amount, reason, date_bkk, now_bkk, now_utc)
+            
+            logger.info(f"✅ อนุมัติคำขอ {request_id} - Cashout สำเร็จ")
             return redirect("/money/approved-requests")
 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [CASHOUT] Request Exception: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": f"Request exception: {str(e)}",
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
+            return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
         except Exception as e:
-            logger.error(f"❌ [WITHDRAW] Error: {str(e)}")
+            logger.error(f"❌ [CASHOUT] Error: {str(e)}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": str(e),
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
             return jsonify({"status": "error", "message": str(e)}), 500
 
 @approved_requests_bp.route("/money/reject/<request_id>", methods=["POST"])
@@ -479,23 +762,12 @@ def api_deposit_request():
         return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
 
     user_id = data.get("userId")
-    amount_raw = data.get("amount")
     reason_code = data.get("reason")
     reason_other = (data.get("reasonOther") or "").strip()
     location_text = (data.get("location") or "").strip()
 
     if not user_id:
         return jsonify({"status": "error", "message": "ไม่พบข้อมูลผู้ใช้จาก LIFF"}), 400
-
-    if not amount_raw:
-        return jsonify({"status": "error", "message": "กรุณาระบุจำนวนเงิน"}), 400
-
-    try:
-        amount_int = int(str(amount_raw).strip())
-        if amount_int <= 0:
-            raise ValueError()
-    except ValueError:
-        return jsonify({"status": "error", "message": "จำนวนเงินไม่ถูกต้อง"}), 400
 
     if reason_code not in ("change", "daily_sales", "other_deposit"):
         return jsonify({"status": "error", "message": "เหตุผลในการฝากเงินไม่ถูกต้อง"}), 400
@@ -516,184 +788,66 @@ def api_deposit_request():
     else:
         reason = reason_code
 
-    # กำหนด endpoint และ branch_id ตามสาขา (ตามโค้ดเดิมใน handlers)
+    # กำหนด endpoint และ branch_id ตามสาขา
     if location_text == "โนนิโกะ":
         base = get_rest_api_ci_base_for_branch("NONIKO")
-        api_url = f"{base}/bot/deposit"
         branch_id = "NONIKO"
     else:  # คลังห้องเย็น
         base = get_rest_api_ci_base_for_branch("Klangfrozen")
-        api_url = f"{base}/bot/deposit"
         branch_id = "Klangfrozen"
 
-    payload = {
-        "amount": amount_int,
-        "machine_id": "line_bot_audit_kf",
-        "branch_id": branch_id,
-    }
     # Use deposit_request_id as sale_id for downstream correlation
     deposit_request_id = f"d-{uuid.uuid4().hex[:8]}"
     headers, meta = build_correlation_headers(sale_id=deposit_request_id)
     trace_id = meta["trace_id"]
     request_header_id = meta["request_id"]
 
-    # สร้าง log คำขอฝากเงินก่อน (pending)
-    now_bkk, now_utc = now_bangkok_and_utc()
-    date_bkk = now_bkk.date().isoformat()
+    # สร้าง session_id และ seq_no สำหรับ replenishment
+    session_id = deposit_request_id
+    seq_no = "1"
 
-    deposit_doc = {
-        "deposit_request_id": deposit_request_id,
-        "user_id": user_id,
-        "amount": amount_int,
-        "reason_code": reason_code,
-        "reason": reason,
-        "location": location_text,
-        "branch_id": branch_id,
-        "api_url": api_url,
-        "payload": payload,
-        "trace_id": trace_id,
-        "request_header_id": request_header_id,
-        "status": "pending",
-        "created_at_bkk": now_bkk.isoformat(),
-        "created_at_utc": now_utc.isoformat(),
-        "created_date_bkk": date_bkk,
-        "sale_id_for_machine": deposit_request_id,
-        "status_history": [
-            {
-                "status": "pending",
-                "at_bkk": now_bkk.isoformat(),
-                "at_utc": now_utc.isoformat(),
-                "date_bkk": date_bkk,
-                "by": user_id,
-            }
-        ],
-    }
+    # ไม่บันทึกตอนเริ่มฝาก - จะบันทึกตอนจบฝากเมื่อได้ยอดเงินแล้ว
 
+    # ยิง API /replenishment/start
     try:
-        deposit_requests_collection.insert_one(deposit_doc)
-        logger.info(f"✅ [DEPOSIT] สร้างคำขอฝากเงิน log: {deposit_request_id}")
+        replenishment_start_url = f"{base}/replenishment/start"
+        replenishment_payload = {
+            "seq_no": seq_no,
+            "session_id": session_id
+        }
+        
+        logger.info(f"📤 [DEPOSIT] กำลังยิง /replenishment/start: {replenishment_start_url}")
+        start_response = requests.post(replenishment_start_url, json=replenishment_payload, headers=headers, timeout=10)
+        start_response.raise_for_status()
+        start_data = start_response.json()
+        
+        if not start_data.get("success"):
+            error_msg = start_data.get("error", "Unknown error from /replenishment/start")
+            logger.error(f"❌ [DEPOSIT] /replenishment/start failed: {error_msg}")
+            return jsonify({"status": "error", "message": f"/replenishment/start failed: {error_msg}"}), 500
+        
+        logger.info(f"✅ [DEPOSIT] /replenishment/start สำเร็จ: {start_data}")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [DEPOSIT] Request Exception: {str(e)}")
+        return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
     except Exception as e:
-        logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกคำขอฝากเงินได้: {str(e)}")
-        return jsonify({"status": "error", "message": "ไม่สามารถบันทึกคำขอฝากเงินได้"}), 500
+        logger.error(f"❌ [DEPOSIT] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-    # ประมวลผล async ใน background thread (fire-and-forget mode)
-    def _process_deposit_async():
-        logger.info(f"📤 [DEPOSIT] (async) ส่งคำขอฝากเงินไปยัง {api_url} payload={payload} headers={headers}")
-        try:
-            # Fire-and-forget: send request without waiting for response
-            # Status will be checked via polling
-            try:
-                requests.post(api_url, json=payload, headers=headers, timeout=10)
-                logger.info(f"📤 [DEPOSIT] (async) Request sent successfully")
-            except Exception as e_send:
-                logger.error(f"📤 [DEPOSIT] (async) Failed to send request: {str(e_send)}")
-                # Update status to error
-                try:
-                    now_bkk_err, now_utc_err = now_bangkok_and_utc()
-                    date_bkk_err = now_bkk_err.date().isoformat()
-                    deposit_requests_collection.update_one(
-                        {"deposit_request_id": deposit_request_id},
-                        {
-                            "$set": {
-                                "status": "error",
-                                "error_message": f"Failed to send request: {str(e_send)}",
-                                "updated_at_bkk": now_bkk_err.isoformat(),
-                                "updated_at_utc": now_utc_err.isoformat(),
-                            },
-                            "$push": {
-                                "status_history": {
-                                    "status": "error",
-                                    "at_bkk": now_bkk_err.isoformat(),
-                                    "at_utc": now_utc_err.isoformat(),
-                                    "date_bkk": date_bkk_err,
-                                    "by": "deposit_api_async",
-                                }
-                            },
-                        },
-                    )
-                except Exception:
-                    pass
-                return
-            
-            # In fire-and-forget mode, we don't wait for response
-            # Status will be checked via polling
-            return
-        except Exception as e_http:
-            # Handle any unexpected errors
-            logger.error(f"📤 [DEPOSIT] (async) Unexpected error: {str(e_http)}")
-            try:
-                now_bkk_err, now_utc_err = now_bangkok_and_utc()
-                date_bkk_err = now_bkk_err.date().isoformat()
-                deposit_requests_collection.update_one(
-                    {"deposit_request_id": deposit_request_id},
-                    {
-                        "$set": {
-                            "status": "error",
-                            "error_message": f"Unexpected error: {str(e_http)}",
-                            "updated_at_bkk": now_bkk_err.isoformat(),
-                            "updated_at_utc": now_utc_err.isoformat(),
-                        },
-                        "$push": {
-                            "status_history": {
-                                "status": "error",
-                                "at_bkk": now_bkk_err.isoformat(),
-                                "at_utc": now_utc_err.isoformat(),
-                                "date_bkk": date_bkk_err,
-                                "by": "deposit_api_async",
-                            }
-                        },
-                    },
-                )
-            except Exception:
-                pass
-            return
-                "name": reason,
-                "amount": amount_int,
-                "receiptAttached": False,
-                "tags": [],
-                "type": "income",
-                "selectedStorage": location_text,
-                "selectedDate": date_bkk_ok,
-                "transaction_at_bkk": now_bkk_ok.isoformat(),
-                "transaction_at_utc": now_utc_ok.isoformat(),
-                "transaction_date_bkk": date_bkk_ok,
-                "direction": "deposit",
-                "channel": "liff",
-                "user_id": user_id,
-                "deposit_request_id": deposit_request_id,
-            }
-            try:
-                result = transactions_collection.insert_one(transaction_data)
-                logger.info(f"✅ [DEPOSIT] (async) บันทึกธุรกรรมฝากเงิน ID: {result.inserted_id} สำเร็จ")
-            except Exception as e_tx:
-                logger.error(f"❌ [DEPOSIT] (async) บันทึกธุรกรรมฝากเงินไม่สำเร็จ: {str(e_tx)}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ [DEPOSIT] (async) API Error: {str(e)}")
-            now_bkk_err, now_utc_err = now_bangkok_and_utc()
-            date_bkk_err = now_bkk_err.date().isoformat()
-            deposit_requests_collection.update_one(
-                {"deposit_request_id": deposit_request_id},
-                {
-                    "$set": {
-                        "status": "error",
-                        "error_message": str(e),
-                        "updated_at_bkk": now_bkk_err.isoformat(),
-                        "updated_at_utc": now_utc_err.isoformat(),
-                    },
-                    "$push": {
-                        "status_history": {
-                            "status": "error",
-                            "at_bkk": now_bkk_err.isoformat(),
-                            "at_utc": now_utc_err.isoformat(),
-                            "date_bkk": date_bkk_err,
-                            "by": "deposit_api_async",
-                        }
-                    },
-                },
-            )
-
-    threading.Thread(target=_process_deposit_async, name=f"deposit-{deposit_request_id}", daemon=True).start()
-    return jsonify({"status": "ok", "deposit_request_id": deposit_request_id})
+    # Return deposit_request_id และข้อมูลที่จำเป็นสำหรับหน้า UI
+    return jsonify({
+        "status": "ok",
+        "deposit_request_id": deposit_request_id,
+        "session_id": session_id,
+        "seq_no": seq_no,
+        "branch_base_url": base,
+        "location": location_text,
+        "reason": reason,
+        "trace_id": trace_id,
+        "request_id": request_header_id,
+        "sale_id": deposit_request_id
+    })
 
 @approved_requests_bp.route("/money/api/deposit-status", methods=["GET"])
 def api_deposit_status():
@@ -713,3 +867,399 @@ def api_deposit_status():
         "amount": doc.get("amount"),
     }
     return jsonify({"status": "ok", "data": resp})
+
+
+@approved_requests_bp.route("/money/api/deposit-info", methods=["GET"])
+def api_deposit_info():
+    """Get deposit request info for monitoring page"""
+    deposit_request_id = request.args.get("id") or request.args.get("deposit_request_id")
+    if not deposit_request_id:
+        return jsonify({"status": "error", "message": "missing deposit_request_id"}), 400
+    
+    doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_request_id}, {"_id": 0})
+    if not doc:
+        return jsonify({"status": "error", "message": "not found"}), 404
+    
+    # กำหนด branch_base_url จาก branch_id
+    branch_id = doc.get("branch_id")
+    branch_base_url = get_rest_api_ci_base_for_branch(branch_id) if branch_id else None
+    
+    resp = {
+        "deposit_request_id": doc.get("deposit_request_id"),
+        "location": doc.get("location"),
+        "reason": doc.get("reason"),
+        "session_id": doc.get("session_id"),
+        "seq_no": doc.get("seq_no"),
+        "branch_id": branch_id,
+        "branch_base_url": branch_base_url,
+        "status": doc.get("status"),
+    }
+    return jsonify({"status": "ok", "data": resp})
+
+
+@approved_requests_bp.route("/money/api/replenishment-end", methods=["POST"])
+def api_replenishment_end():
+    """End replenishment operation and save deposit record"""
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
+    
+    deposit_id = data.get("deposit_id")
+    session_id = data.get("session_id")
+    seq_no = data.get("seq_no", "1")
+    user_id = data.get("user_id")
+    reason_code = data.get("reason_code")
+    reason_other = data.get("reason_other", "")
+    location_text = data.get("location")
+    amount = data.get("amount", 0)  # ยอดเงินที่ส่งมาจาก frontend
+    
+    if not deposit_id:
+        return jsonify({"status": "error", "message": "missing deposit_id"}), 400
+    
+    if not user_id or not reason_code or not location_text:
+        return jsonify({"status": "error", "message": "missing required fields (user_id, reason_code, location)"}), 400
+    
+    # กำหนด branch_id และ branch_base_url ตาม location
+    if location_text == "โนนิโกะ":
+        branch_id = "NONIKO"
+        branch_base_url = get_rest_api_ci_base_for_branch("NONIKO")
+    else:  # คลังห้องเย็น
+        branch_id = "Klangfrozen"
+        branch_base_url = get_rest_api_ci_base_for_branch("Klangfrozen")
+    
+    if not branch_base_url:
+        return jsonify({"status": "error", "message": "branch_base_url not found"}), 400
+    
+    # แม็ปเหตุผลให้เป็นข้อความอ่านง่าย
+    if reason_code == "change":
+        reason = "เงินทอน"
+    elif reason_code == "daily_sales":
+        reason = "ฝากยอดขาย"
+    elif reason_code == "other_deposit":
+        reason = reason_other
+    else:
+        reason = reason_code
+    
+    # ยิง API /replenishment/end
+    try:
+        headers, meta = build_correlation_headers(sale_id=deposit_id)
+        end_url = f"{branch_base_url}/replenishment/end"
+        end_payload = {
+            "seq_no": seq_no,
+            "session_id": session_id
+        }
+        
+        logger.info(f"📤 [REPLENISHMENT] กำลังยิง /replenishment/end: {end_url}")
+        end_response = requests.post(end_url, json=end_payload, headers=headers, timeout=10)
+        end_response.raise_for_status()
+        end_data = end_response.json()
+        
+        if not end_data.get("success"):
+            error_msg = end_data.get("error", "Unknown error from /replenishment/end")
+            logger.error(f"❌ [REPLENISHMENT] /replenishment/end failed: {error_msg}")
+            return jsonify({"status": "error", "message": f"/replenishment/end failed: {error_msg}"}), 500
+        
+        logger.info(f"✅ [REPLENISHMENT] /replenishment/end สำเร็จ: {end_data}")
+        
+        # ดึงยอดเงินจาก socket/latest (ถ้ายังไม่มี amount)
+        if not amount or amount == 0:
+            try:
+                socket_url = f"{branch_base_url}/socket/latest"
+                socket_response = requests.get(socket_url, headers=headers, timeout=5)
+                if socket_response.status_code == 200:
+                    socket_data = socket_response.json()
+                    if socket_data.get("success") and socket_data.get("amount_baht"):
+                        amount = socket_data.get("amount_baht")
+                        logger.info(f"💰 [REPLENISHMENT] ดึงยอดเงินจาก socket/latest: {amount} บาท")
+            except Exception as e:
+                logger.warning(f"⚠️ [REPLENISHMENT] ไม่สามารถดึงยอดเงินจาก socket/latest: {str(e)}")
+        
+        # บันทึกข้อมูลการฝากเงินใหม่ (บันทึกตอนจบฝากเมื่อได้ยอดเงินแล้ว)
+        now_bkk, now_utc = now_bangkok_and_utc()
+        date_bkk = now_bkk.date().isoformat()
+        
+        deposit_doc = {
+            "deposit_request_id": deposit_id,
+            "user_id": user_id,
+            "amount": float(amount) if amount else None,
+            "reason_code": reason_code,
+            "reason": reason,
+            "location": location_text,
+            "branch_id": branch_id,
+            "session_id": session_id,
+            "seq_no": seq_no,
+            "trace_id": meta.get("trace_id"),
+            "request_header_id": meta.get("request_id"),
+            "status": "completed",
+            "created_at_bkk": now_bkk.isoformat(),
+            "created_at_utc": now_utc.isoformat(),
+            "created_date_bkk": date_bkk,
+            "updated_at_bkk": now_bkk.isoformat(),
+            "updated_at_utc": now_utc.isoformat(),
+            "status_history": [
+                {
+                    "status": "completed",
+                    "at_bkk": now_bkk.isoformat(),
+                    "at_utc": now_utc.isoformat(),
+                    "date_bkk": date_bkk,
+                    "by": user_id,
+                }
+            ],
+        }
+        
+        try:
+            deposit_requests_collection.insert_one(deposit_doc)
+            logger.info(f"✅ [DEPOSIT] บันทึกข้อมูลการฝากเงินสำเร็จ: {deposit_id}, จำนวน: {amount} บาท")
+        except Exception as e:
+            logger.error(f"❌ [DEPOSIT] ไม่สามารถบันทึกข้อมูลการฝากเงินได้: {str(e)}")
+            # ไม่ return error เพราะ replenishment/end สำเร็จแล้ว
+        
+        return jsonify({"status": "ok", "message": "จบการฝากเงินสำเร็จ"})
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [REPLENISHMENT] Request Exception: {str(e)}")
+        return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"❌ [REPLENISHMENT] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@approved_requests_bp.route("/money/api/replenishment-cancel", methods=["POST"])
+def api_replenishment_cancel():
+    """Cancel replenishment operation"""
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
+    
+    deposit_id = data.get("deposit_id")
+    session_id = data.get("session_id")
+    seq_no = data.get("seq_no", "1")
+    location_text = data.get("location")
+    
+    if not deposit_id:
+        return jsonify({"status": "error", "message": "missing deposit_id"}), 400
+    
+    # กำหนด branch_id และ branch_base_url ตาม location
+    if location_text == "โนนิโกะ":
+        branch_id = "NONIKO"
+        branch_base_url = get_rest_api_ci_base_for_branch("NONIKO")
+    elif location_text == "คลังห้องเย็น":
+        branch_id = "Klangfrozen"
+        branch_base_url = get_rest_api_ci_base_for_branch("Klangfrozen")
+    else:
+        # ถ้าไม่มี location ให้ลองดึงจาก doc (กรณีเก่า)
+        doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_id})
+        if doc:
+            branch_id = doc.get("branch_id")
+            branch_base_url = get_rest_api_ci_base_for_branch(branch_id) if branch_id else None
+            session_id = session_id or doc.get("session_id")
+            seq_no = seq_no or doc.get("seq_no", "1")
+        else:
+            branch_base_url = None
+    
+    if not branch_base_url:
+        return jsonify({"status": "error", "message": "branch_base_url not found"}), 400
+    
+    # ยิง API /replenishment/cancel
+    try:
+        headers, meta = build_correlation_headers(sale_id=deposit_id)
+        cancel_url = f"{branch_base_url}/replenishment/cancel"
+        cancel_payload = {
+            "seq_no": seq_no,
+            "session_id": session_id
+        }
+        
+        logger.info(f"📤 [REPLENISHMENT] กำลังยิง /replenishment/cancel: {cancel_url}")
+        cancel_response = requests.post(cancel_url, json=cancel_payload, headers=headers, timeout=10)
+        cancel_response.raise_for_status()
+        cancel_data = cancel_response.json()
+        
+        if not cancel_data.get("success"):
+            error_msg = cancel_data.get("error", "Unknown error from /replenishment/cancel")
+            logger.error(f"❌ [REPLENISHMENT] /replenishment/cancel failed: {error_msg}")
+            return jsonify({"status": "error", "message": f"/replenishment/cancel failed: {error_msg}"}), 500
+        
+        logger.info(f"✅ [REPLENISHMENT] /replenishment/cancel สำเร็จ: {cancel_data}")
+        
+        # ไม่ต้องบันทึกอะไรเมื่อยกเลิก เพราะยังไม่มีการฝากเงินจริง
+        
+        return jsonify({"status": "ok", "message": "ยกเลิกการฝากเงินสำเร็จ"})
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [REPLENISHMENT] Request Exception: {str(e)}")
+        return jsonify({"status": "error", "message": f"Request exception: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"❌ [REPLENISHMENT] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@approved_requests_bp.route("/money/api/socket-latest", methods=["GET"])
+def api_socket_latest():
+    """Get latest socket amount from branch API"""
+    try:
+        deposit_id = request.args.get("deposit_id")
+        
+        if not deposit_id:
+            return jsonify({"status": "error", "message": "missing deposit_id"}), 400
+        
+        # ดึงข้อมูล deposit request
+        doc = deposit_requests_collection.find_one({"deposit_request_id": deposit_id})
+        if not doc:
+            return jsonify({"status": "error", "message": "deposit request not found"}), 404
+        
+        branch_id = doc.get("branch_id")
+        branch_base_url = get_rest_api_ci_base_for_branch(branch_id) if branch_id else None
+        
+        if not branch_base_url:
+            return jsonify({"status": "error", "message": "branch_base_url not found"}), 400
+        
+        # ยิง GET request ไปที่ /socket/latest
+        try:
+            headers, meta = build_correlation_headers(sale_id=deposit_id)
+            socket_url = f"{branch_base_url}/socket/latest"
+            
+            logger.debug(f"📤 [SOCKET] กำลังยิง /socket/latest: {socket_url}")
+            socket_response = requests.get(socket_url, headers=headers, timeout=5)
+            socket_response.raise_for_status()
+            socket_data = socket_response.json()
+            
+            logger.debug(f"✅ [SOCKET] /socket/latest สำเร็จ: {socket_data}")
+            
+            # Return response ตาม format เดิม
+            return jsonify({
+                "status": "ok",
+                "amount_baht": socket_data.get("amount_baht", 0),
+                "success": socket_data.get("success", True),
+                "ts": socket_data.get("ts", 0)
+            })
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [SOCKET] Request Exception: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": f"Request exception: {str(e)}",
+                "amount_baht": 0,
+                "success": False,
+                "ts": 0
+            }), 500
+        except Exception as e:
+            logger.error(f"❌ [SOCKET] Error: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "amount_baht": 0,
+                "success": False,
+                "ts": 0
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ [SOCKET] Error: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "amount_baht": 0,
+            "success": False,
+            "ts": 0
+        }), 500
+
+
+@approved_requests_bp.route("/money/api/socket-latest-proxy", methods=["GET"])
+def api_socket_latest_proxy():
+    """
+    Proxy endpoint สำหรับ frontend เพื่อยิง API ไปที่ new_ci_api /socket/latest
+    รับ parameters: branch_base_url, trace_id, request_id, sale_id, seq_no, session_id
+    """
+    try:
+        branch_base_url = request.args.get("branch_base_url")
+        trace_id = request.args.get("trace_id")
+        request_id = request.args.get("request_id")
+        sale_id = request.args.get("sale_id")
+        seq_no = request.args.get("seq_no")
+        session_id = request.args.get("session_id")
+        
+        if not branch_base_url:
+            return jsonify({
+                "status": "error",
+                "message": "missing branch_base_url",
+                "amount_baht": 0,
+                "success": False,
+                "ts": 0
+            }), 400
+        
+        # สร้าง headers ตามที่ API ต้องการ
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        if trace_id:
+            headers["X-Trace-Id"] = trace_id
+        if request_id:
+            headers["X-Request-Id"] = request_id
+        if sale_id:
+            headers["X-Sale-Id"] = sale_id
+        if seq_no:
+            headers["X-Seq-No"] = seq_no
+        if session_id:
+            headers["X-Session-Id"] = session_id
+        
+        # ยิง GET request ไปที่ /socket/latest
+        try:
+            socket_url = f"{branch_base_url}/socket/latest"
+            
+            logger.debug(f"📤 [SOCKET-PROXY] กำลังยิง /socket/latest: {socket_url}")
+            socket_response = requests.get(socket_url, headers=headers, timeout=5)
+            socket_response.raise_for_status()
+            socket_data = socket_response.json()
+            
+            logger.debug(f"✅ [SOCKET-PROXY] /socket/latest สำเร็จ: {socket_data}")
+            
+            # Return response ตาม format เดิม
+            return jsonify({
+                "status": "ok",
+                "amount_baht": socket_data.get("amount_baht", 0),
+                "success": socket_data.get("success", True),
+                "ts": socket_data.get("ts", 0)
+            })
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ [SOCKET-PROXY] Request Exception: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": f"Request exception: {str(e)}",
+                "amount_baht": 0,
+                "success": False,
+                "ts": 0
+            }), 500
+        except Exception as e:
+            logger.error(f"❌ [SOCKET-PROXY] Error: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "amount_baht": 0,
+                "success": False,
+                "ts": 0
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ [SOCKET-PROXY] Error: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "amount_baht": 0,
+            "success": False,
+            "ts": 0
+        }), 500
+
+
+@approved_requests_bp.route("/money/deposit-monitor", methods=["GET"])
+def deposit_monitor():
+    """หน้า UI สำหรับติดตามการฝากเงิน"""
+    from flask import make_response
+    # เพิ่ม headers เพื่อป้องกัน cache
+    response = make_response(render_template("deposit_monitor.html"))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response

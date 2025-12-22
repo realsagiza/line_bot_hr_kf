@@ -170,6 +170,10 @@
             background: #ef4444;
             color: #fef2f2;
         }
+        .status-badge.pending {
+            background: #f59e0b;
+            color: #fef3c7;
+        }
         .item-row {
             font-size: 11px;
             color: #374151;
@@ -278,33 +282,35 @@
 
         <div class="card">
             <div class="section-title">
-                <span>💰 รายการฝากเงินสด</span>
-                <span class="pill">{{ deposit_transactions|length }} รายการ</span>
+                <span>💵 รายการฝากเงิน (ระบบใหม่)</span>
+                <span class="pill">{{ deposit_requests|length }} รายการ</span>
             </div>
-            {% if deposit_transactions %}
+            {% if deposit_requests %}
             <div class="list">
-                {% for tx in deposit_transactions %}
-                <div class="item">
+                {% for dr in deposit_requests %}
+                <div class="item approved">
                     <div class="item-header">
-                        <div class="item-id">
-                            เหตุผล: {{ tx.name }}
-                        </div>
-                        <span class="pill">
-                            {{ tx.selectedStorage }}
-                        </span>
+                        <div class="item-id">หมายเลขคำขอ: {{ dr.deposit_request_id }}</div>
+                        <div class="status-badge approved">เสร็จสิ้น</div>
                     </div>
                     <div class="item-row">
                         <span>จำนวนเงิน</span>
-                        <span class="value">{{ tx.amount }} บาท</span>
-                    </div>
-                    <div class="item-row">
-                        <span>ประเภท</span>
-                        <span class="value">ฝากเงิน ({{ tx.type }})</span>
-                    </div>
-                    <div class="item-row">
-                        <span>วันที่ทำรายการ (เวลาไทย)</span>
                         <span class="value">
-                            {{ tx.transaction_date_bkk if tx.transaction_date_bkk is defined else selected_date }}
+                            {% if dr.amount %}{{ dr.amount }} บาท{% else %}-{% endif %}
+                        </span>
+                    </div>
+                    <div class="item-row">
+                        <span>เหตุผล</span>
+                        <span class="value">{{ dr.reason }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>สถานที่ฝากเงิน</span>
+                        <span class="value">{{ dr.location }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>วันที่ฝาก (เวลาไทย)</span>
+                        <span class="value">
+                            {{ dr.created_date_bkk if dr.created_date_bkk is defined else '' }}
                         </span>
                     </div>
                 </div>

@@ -275,11 +275,6 @@
       <div class="section-title" style="margin-top:0;">ฟอร์มฝากเงินสด</div>
       <form id="deposit-form" novalidate>
         <div class="field">
-          <label for="deposit-amount">จำนวนเงิน (บาท)</label>
-          <input type="text" id="deposit-amount" inputmode="numeric" required placeholder="เช่น 100, 500" autocomplete="off">
-        </div>
-
-        <div class="field">
           <label for="deposit-reason">เหตุผลในการฝากเงิน</label>
           <select id="deposit-reason" required onchange="onDepositReasonChange()">
             <option value="">-- เลือกเหตุผล --</option>
@@ -303,9 +298,33 @@
           </select>
         </div>
 
-        <button type="submit" class="btn-submit">ส่งคำขอฝากเงิน</button>
+        <button type="submit" class="btn-submit">เริ่มต้นการฝากเงิน</button>
         <div class="status" id="deposit-status"></div>
       </form>
+
+      <!-- UI สำหรับแสดงยอดเงินที่ฝาก -->
+      <div id="deposit-monitor" class="hidden" style="margin-top: 20px;">
+        <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%); border-radius: 12px; margin-bottom: 16px;">
+          <div style="font-size: 12px; color: #6b7280; margin-bottom: 8px;">ยอดเงินที่ฝาก</div>
+          <div style="font-size: 36px; font-weight: 700; color: #2563eb;">
+            <span id="deposit-amount-display">0</span>
+            <span style="font-size: 20px; color: #6b7280; margin-left: 4px;">บาท</span>
+          </div>
+        </div>
+
+        <div style="text-align: center; padding: 12px; background: #dcfce7; color: #166534; border-radius: 12px; margin-bottom: 16px; font-size: 14px; font-weight: 600;" id="deposit-status-text">
+          กำลังฝากเงิน...
+        </div>
+
+        <div style="display: flex; gap: 12px;">
+          <button class="btn-submit" id="btn-deposit-end" onclick="endDeposit()" style="flex: 1; background: linear-gradient(135deg, #22c55e, #16a34a);">
+            ✅ จบการฝาก
+          </button>
+          <button class="btn-submit" id="btn-deposit-cancel" onclick="cancelDeposit()" style="flex: 1; background: linear-gradient(135deg, #ef4444, #dc2626);">
+            ❌ ยกเลิก
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -500,6 +519,23 @@
       }
     }
 
+    let depositPollingInterval = null;
+    let currentDepositId = null;
+    let currentBranchBaseUrl = null;
+    let currentSessionId = null;
+    let currentSeqNo = null;
+    let currentTraceId = null;
+    let currentRequestId = null;
+    let currentSaleId = null;
+    let isDepositEnded = false;
+    let depositStartTime = null;
+    let maxDepositAmount = 0; // เก็บยอดสูงสุดที่เคยได้รับ
+    let currentDepositUserId = null;
+    let currentDepositReason = null;
+    let currentDepositReasonCode = null;
+    let currentDepositReasonOther = null;
+    let currentDepositLocation = null;
+
     async function submitDepositForm(event) {
       event.preventDefault();
       const statusEl = document.getElementById('deposit-status');
@@ -512,16 +548,10 @@
         return;
       }
 
-      const amount = document.getElementById('deposit-amount').value.trim();
       const reason = document.getElementById('deposit-reason').value;
       const reasonOther = document.getElementById('deposit-reason-other').value.trim();
       const location = document.getElementById('deposit-location').value;
 
-      if (!amount || Number(amount) <= 0) {
-        statusEl.textContent = "กรุณาระบุจำนวนเงินให้ถูกต้อง";
-        statusEl.classList.add('status-err');
-        return;
-      }
       if (!reason) {
         statusEl.textContent = "กรุณาเลือกเหตุผลในการฝากเงิน";
         statusEl.classList.add('status-err');
@@ -540,14 +570,13 @@
 
       const payload = {
         userId: currentUserId,
-        amount: amount,
         reason: reason,
         reasonOther: reasonOther,
         location: location
       };
 
       try {
-        statusEl.textContent = "กำลังส่งคำขอฝากเงิน... (จะดำเนินการเบื้องหลัง)";
+        statusEl.textContent = "กำลังเริ่มต้นการฝากเงิน...";
         const res = await fetch("/money/api/deposit-request", {
           method: "POST",
           headers: {
@@ -558,21 +587,42 @@
 
         const data = await res.json();
         if (!res.ok || data.status !== "ok") {
-          throw new Error(data.message || "ไม่สามารถฝากเงินได้");
+          throw new Error(data.message || "ไม่สามารถเริ่มต้นการฝากเงินได้");
         }
 
-        const depositId = data.deposit_request_id;
-        if (!depositId) {
-          throw new Error("ไม่ได้รับเลขที่คำขอฝากเงิน");
+        currentDepositId = data.deposit_request_id;
+        currentBranchBaseUrl = data.branch_base_url;
+        currentSessionId = data.session_id;
+        currentSeqNo = data.seq_no;
+        currentTraceId = data.trace_id;
+        currentRequestId = data.request_id;
+        currentSaleId = data.sale_id || data.deposit_request_id;
+        
+        // เก็บข้อมูลสำหรับบันทึกตอนจบฝาก
+        currentDepositUserId = currentUserId;
+        currentDepositReasonCode = reason;
+        currentDepositReasonOther = reasonOther;
+        currentDepositLocation = location;
+
+        if (!currentDepositId || !currentBranchBaseUrl) {
+          throw new Error("ไม่ได้รับข้อมูลที่จำเป็นสำหรับการฝากเงิน");
         }
 
-        statusEl.textContent = "รับคำขอแล้ว กำลังประมวลผลฝากเงิน...";
+        // ซ่อนฟอร์ม แสดง UI monitor
+        document.getElementById('deposit-form').classList.add('hidden');
+        document.getElementById('deposit-monitor').classList.remove('hidden');
+        
+        statusEl.textContent = "✅ เริ่มต้นการฝากเงินสำเร็จ";
+        statusEl.classList.add('status-ok');
 
-        // เริ่ม polling สถานะจนกว่าจะสำเร็จ/ล้มเหลว หรือหมดเวลา
-        await pollDepositStatus(depositId, statusEl);
+        // ตั้งค่าเวลาที่เริ่มฝากเงิน
+        depositStartTime = Date.now();
+        isDepositEnded = false;
+        maxDepositAmount = 0; // Reset ยอดสูงสุดเมื่อเริ่มฝากเงินใหม่
 
-        // ไม่ reset ฟอร์มจนกว่าจะรู้ผลเพื่อให้ผู้ใช้เห็นสถานะก่อน
-        // หากสำเร็จแล้วจึงค่อย reset
+        // เริ่ม polling ยอดเงิน
+        startDepositPolling();
+
       } catch (err) {
         console.error(err);
         statusEl.textContent = err.message || "เกิดข้อผิดพลาดในการฝากเงิน";
@@ -580,46 +630,264 @@
       }
     }
 
-    async function pollDepositStatus(depositId, statusEl, timeoutMs = 180000, intervalMs = 2500) {
-      const start = Date.now();
-      while (Date.now() - start < timeoutMs) {
-        try {
-          const r = await fetch(`/money/api/deposit-status?id=${encodeURIComponent(depositId)}`, {
-            method: "GET",
-            headers: { "Accept": "application/json" }
-          });
-          const j = await r.json();
-          if (r.ok && j.status === "ok") {
-            const s = (j.data || {}).status;
-            if (s === "success") {
-              statusEl.textContent = "ฝากเงินสำเร็จแล้ว";
-              statusEl.classList.remove('status-err');
-              statusEl.classList.add('status-ok');
-              document.getElementById('deposit-form').reset();
-              onDepositReasonChange();
-              return;
-            } else if (s === "error") {
-              const msg = (j.data || {}).error_message || "ฝากเงินล้มเหลว";
-              statusEl.textContent = `ผิดพลาด: ${msg}`;
-              statusEl.classList.remove('status-ok');
-              statusEl.classList.add('status-err');
-              return;
-            } else {
-              statusEl.textContent = "กำลังประมวลผลฝากเงิน...";
-            }
-          } else {
-            // API error แต่ยัง retry ต่อ
-            statusEl.textContent = "กำลังประมวลผลฝากเงิน...";
-          }
-        } catch (_e) {
-          // เงียบๆ แล้ว retry ต่อ
-          statusEl.textContent = "กำลังประมวลผลฝากเงิน...";
-        }
-        await new Promise(res => setTimeout(res, intervalMs));
+    function startDepositPolling() {
+      // Poll ทันทีครั้งแรก
+      pollDepositAmount();
+
+      // Poll ทุก 2 วินาที
+      depositPollingInterval = setInterval(pollDepositAmount, 2000);
+    }
+
+    function stopDepositPolling() {
+      if (depositPollingInterval) {
+        clearInterval(depositPollingInterval);
+        depositPollingInterval = null;
       }
-      statusEl.textContent = "ยังไม่ทราบผล กรุณาตรวจสอบใน 'สถานะคำขอของฉัน' ภายหลัง";
-      statusEl.classList.remove('status-ok');
-      statusEl.classList.add('status-err');
+    }
+
+    async function pollDepositAmount() {
+      if (!currentBranchBaseUrl || isDepositEnded) {
+        return;
+      }
+
+      try {
+        // ใช้ proxy endpoint แทนการยิงตรงไปที่ new_ci_api เพื่อหลีกเลี่ยง CORS issue
+        const params = new URLSearchParams({
+          branch_base_url: currentBranchBaseUrl
+        });
+        
+        if (currentTraceId) {
+          params.append('trace_id', currentTraceId);
+        }
+        if (currentRequestId) {
+          params.append('request_id', currentRequestId);
+        }
+        if (currentSaleId) {
+          params.append('sale_id', currentSaleId);
+        }
+        if (currentSeqNo) {
+          params.append('seq_no', currentSeqNo);
+        }
+        if (currentSessionId) {
+          params.append('session_id', currentSessionId);
+        }
+        
+        const url = `/money/api/socket-latest-proxy?${params.toString()}`;
+        console.log('Polling via proxy:', url); // Debug log
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          cache: 'no-cache',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          console.error('Poll error: HTTP', response.status, response.statusText);
+          const errorText = await response.text();
+          console.error('Poll error response:', errorText);
+          document.getElementById('deposit-status-text').textContent = `⚠️ ไม่สามารถเชื่อมต่อ API ได้ (HTTP ${response.status})`;
+          document.getElementById('deposit-status-text').style.background = '#fee2e2';
+          document.getElementById('deposit-status-text').style.color = '#991b1b';
+          return;
+        }
+        
+        const data = await response.json();
+        console.log('Poll response:', data); // Debug log
+
+        // Handle response format: {status: "ok", amount_baht: 0, success: true, ts: 0}
+        if (data.status === "ok" && data.success !== false) {
+          const amount = data.amount_baht || 0;
+          const ts = data.ts || 0;
+          
+          // อัพเดทยอดเฉพาะเมื่อยอดใหม่มากกว่ายอดสูงสุดที่เคยได้รับ
+          if (amount > maxDepositAmount) {
+            maxDepositAmount = amount;
+            console.log(`✅ อัพเดทยอดใหม่: ${amount} บาท (ยอดสูงสุด: ${maxDepositAmount} บาท)`);
+          } else if (amount < maxDepositAmount) {
+            console.log(`⏸️ ยอดใหม่น้อยกว่ายอดสูงสุด: ${amount} < ${maxDepositAmount} (ไม่อัพเดท)`);
+          }
+          
+          // แสดงยอดสูงสุดที่เคยได้รับ
+          document.getElementById('deposit-amount-display').textContent = maxDepositAmount.toLocaleString('th-TH');
+          
+          if (maxDepositAmount > 0 && ts > 0) {
+            const updateTime = new Date(ts * 1000);
+            const timeStr = updateTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            document.getElementById('deposit-status-text').textContent = `กำลังฝากเงิน... (อัปเดตล่าสุด: ${timeStr})`;
+            document.getElementById('deposit-status-text').style.background = '#dcfce7';
+            document.getElementById('deposit-status-text').style.color = '#166534';
+          } else {
+            // แสดงข้อความที่ชัดเจนขึ้นว่าต้องรอให้เครื่องส่ง event มา
+            if (depositStartTime) {
+              const elapsedSeconds = Math.floor((Date.now() - depositStartTime) / 1000);
+              document.getElementById('deposit-status-text').textContent = `รอการฝากเงิน... (รอ ${elapsedSeconds} วินาที) - กรุณาเริ่มฝากเงินที่เครื่อง`;
+            } else {
+              document.getElementById('deposit-status-text').textContent = 'รอการฝากเงิน... (ยังไม่มียอดเงิน) - กรุณาเริ่มฝากเงินที่เครื่อง';
+            }
+            document.getElementById('deposit-status-text').style.background = '#fef3c7';
+            document.getElementById('deposit-status-text').style.color = '#92400e';
+          }
+        } else {
+          console.error('Poll error:', data.message || data.error);
+          document.getElementById('deposit-status-text').textContent = `⚠️ API Error: ${data.message || data.error || 'Unknown error'}`;
+          document.getElementById('deposit-status-text').style.background = '#fee2e2';
+          document.getElementById('deposit-status-text').style.color = '#991b1b';
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+        const errorMessage = err.message || 'load failed';
+        document.getElementById('deposit-status-text').textContent = `⚠️ เกิดข้อผิดพลาดในการดึงข้อมูล: ${errorMessage}`;
+        document.getElementById('deposit-status-text').style.background = '#fee2e2';
+        document.getElementById('deposit-status-text').style.color = '#991b1b';
+      }
+    }
+
+    async function endDeposit() {
+      if (isDepositEnded) return;
+
+      const btn = document.getElementById('btn-deposit-end');
+      btn.disabled = true;
+      btn.textContent = 'กำลังจบการฝาก...';
+
+      try {
+        const response = await fetch('/money/api/replenishment-end', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            deposit_id: currentDepositId,
+            session_id: currentSessionId,
+            seq_no: currentSeqNo,
+            user_id: currentDepositUserId,
+            reason_code: currentDepositReasonCode,
+            reason_other: currentDepositReasonOther,
+            location: currentDepositLocation,
+            amount: maxDepositAmount // ส่งยอดสูงสุดที่เคยได้รับ
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'ไม่สามารถจบการฝากได้');
+        }
+
+        isDepositEnded = true;
+        stopDepositPolling();
+        
+        document.getElementById('deposit-status-text').textContent = '✅ จบการฝากสำเร็จ';
+        document.getElementById('deposit-status-text').style.background = '#dbeafe';
+        document.getElementById('deposit-status-text').style.color = '#1e40af';
+        document.getElementById('btn-deposit-end').disabled = true;
+        document.getElementById('btn-deposit-cancel').disabled = true;
+
+        // Reset ฟอร์มและซ่อน monitor
+        setTimeout(() => {
+          document.getElementById('deposit-form').reset();
+          document.getElementById('deposit-form').classList.remove('hidden');
+          document.getElementById('deposit-monitor').classList.add('hidden');
+          document.getElementById('deposit-amount-display').textContent = '0';
+          isDepositEnded = false;
+          currentDepositId = null;
+          currentBranchBaseUrl = null;
+          currentSessionId = null;
+          currentSeqNo = null;
+          currentTraceId = null;
+          currentRequestId = null;
+          currentSaleId = null;
+          maxDepositAmount = 0; // Reset ยอดสูงสุด
+          depositStartTime = null;
+          currentDepositUserId = null;
+          currentDepositReasonCode = null;
+          currentDepositReasonOther = null;
+          currentDepositLocation = null;
+          btn.disabled = false;
+          btn.textContent = '✅ จบการฝาก';
+        }, 3000);
+      } catch (err) {
+        console.error('End deposit error:', err);
+        document.getElementById('deposit-status-text').textContent = `❌ เกิดข้อผิดพลาด: ${err.message}`;
+        document.getElementById('deposit-status-text').style.background = '#fee2e2';
+        document.getElementById('deposit-status-text').style.color = '#991b1b';
+        btn.disabled = false;
+        btn.textContent = '✅ จบการฝาก';
+      }
+    }
+
+    async function cancelDeposit() {
+      if (isDepositEnded) return;
+
+      if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการยกเลิกการฝากเงิน?')) {
+        return;
+      }
+
+      const btn = document.getElementById('btn-deposit-cancel');
+      btn.disabled = true;
+      btn.textContent = 'กำลังยกเลิก...';
+
+      try {
+        const response = await fetch('/money/api/replenishment-cancel', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            deposit_id: currentDepositId,
+            session_id: currentSessionId,
+            seq_no: currentSeqNo,
+            location: currentDepositLocation
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'ไม่สามารถยกเลิกการฝากได้');
+        }
+
+        isDepositEnded = true;
+        stopDepositPolling();
+        
+        document.getElementById('deposit-status-text').textContent = '❌ ยกเลิกการฝากแล้ว';
+        document.getElementById('deposit-status-text').style.background = '#fee2e2';
+        document.getElementById('deposit-status-text').style.color = '#991b1b';
+        document.getElementById('btn-deposit-end').disabled = true;
+        document.getElementById('btn-deposit-cancel').disabled = true;
+
+        // Reset ฟอร์มและซ่อน monitor
+        setTimeout(() => {
+          document.getElementById('deposit-form').reset();
+          document.getElementById('deposit-form').classList.remove('hidden');
+          document.getElementById('deposit-monitor').classList.add('hidden');
+          document.getElementById('deposit-amount-display').textContent = '0';
+          isDepositEnded = false;
+          currentDepositId = null;
+          currentBranchBaseUrl = null;
+          currentSessionId = null;
+          currentSeqNo = null;
+          currentTraceId = null;
+          currentRequestId = null;
+          currentSaleId = null;
+          maxDepositAmount = 0; // Reset ยอดสูงสุด
+          depositStartTime = null;
+          currentDepositUserId = null;
+          currentDepositReasonCode = null;
+          currentDepositReasonOther = null;
+          currentDepositLocation = null;
+          btn.disabled = false;
+          btn.textContent = '❌ ยกเลิก';
+        }, 3000);
+      } catch (err) {
+        console.error('Cancel deposit error:', err);
+        document.getElementById('deposit-status-text').textContent = `❌ เกิดข้อผิดพลาด: ${err.message}`;
+        document.getElementById('deposit-status-text').style.background = '#fee2e2';
+        document.getElementById('deposit-status-text').style.color = '#991b1b';
+        btn.disabled = false;
+        btn.textContent = '❌ ยกเลิก';
+      }
     }
     window.addEventListener('load', () => {
       initLiff();
@@ -627,7 +895,6 @@
       document.getElementById('deposit-form').addEventListener('submit', submitDepositForm);
       // ป้องกัน error จาก keyboard ไทย/สัญลักษณ์ โดย sanitize ตั้งแต่พิมพ์
       attachNumericSanitizer('amount');
-      attachNumericSanitizer('deposit-amount');
     });
   </script>
 </body>
