@@ -303,7 +303,8 @@ def handle_postback(event, line_bot_api):
                         )
                     )
                     reset_state(user_id)
-                    return reply_message
+                    # อย่า return ที่นี่ เพราะ main webhook ไม่ได้ใช้ค่าที่คืนกลับ
+                    # ให้ไหลไปด้านล่างเพื่อส่ง reply_message ผ่าน line_bot_api.reply_message
                     
             except requests.exceptions.RequestException as e:
                 logger.error(f"❌ [DEPOSIT] Request Exception: {str(e)}")
@@ -366,7 +367,9 @@ def handle_postback(event, line_bot_api):
                 )
             
             reset_state(user_id)
-            reply_message = TextSendMessage(text=text)
+            # ถ้ามี reply_message (เช่น TemplateSendMessage พร้อมลิงก์) แล้ว อย่า override
+            if reply_message is None:
+                reply_message = TextSendMessage(text=text)
         elif  state == "waiting_for_location_deposit" and location == "cold_storage":
             # แม็ปเหตุผลให้เป็นข้อความอ่านง่าย
             if reson == "change":
@@ -502,7 +505,8 @@ def handle_postback(event, line_bot_api):
                         )
                     )
                     reset_state(user_id)
-                    return reply_message
+                    # อย่า return ที่นี่ เพราะ main webhook ไม่ได้ใช้ค่าที่คืนกลับ
+                    # ให้ไหลไปด้านล่างเพื่อส่ง reply_message ผ่าน line_bot_api.reply_message
                     
             except requests.exceptions.RequestException as e:
                 logger.error(f"❌ [DEPOSIT] Request Exception: {str(e)}")
@@ -565,7 +569,9 @@ def handle_postback(event, line_bot_api):
                 )
             
             reset_state(user_id)
-            reply_message = TextSendMessage(text=text)
+            # ถ้ามี reply_message (เช่น TemplateSendMessage พร้อมลิงก์) แล้ว อย่า override
+            if reply_message is None:
+                reply_message = TextSendMessage(text=text)
         elif state == "waiting_for_location": 
             send_summary(user_id, line_bot_api)
             return  # ไม่ reset state ที่นี่ เพราะต้องให้ตรวจสอบข้อมูลก่อน

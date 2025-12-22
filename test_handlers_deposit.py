@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 # Import after path setup
 from handlers import handle_postback, reset_state, user_session
-from linebot.models import PostbackEvent, SourceUser, TextSendMessage
+from linebot.models import PostbackEvent, SourceUser, TextSendMessage, TemplateSendMessage
 
 
 class TestHandlersDeposit(unittest.TestCase):
@@ -96,7 +96,7 @@ class TestHandlersDeposit(unittest.TestCase):
         # Mock successful API response
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.text = '{"status": "success"}'
+        mock_response.json.return_value = {"success": True}
         mock_response.raise_for_status = Mock()
         mock_requests.post.return_value = mock_response
         
@@ -114,9 +114,9 @@ class TestHandlersDeposit(unittest.TestCase):
         # Verify API was called correctly
         mock_requests.post.assert_called_once()
         call_args = mock_requests.post.call_args
-        self.assertEqual(call_args[0][0], "http://10.0.0.14:5000/bot/deposit")
-        self.assertEqual(call_args[1]["json"]["amount"], 500)
-        self.assertEqual(call_args[1]["json"]["branch_id"], "NONIKO")
+        self.assertEqual(call_args[0][0], "http://10.0.0.14:5000/replenishment/start")
+        self.assertEqual(call_args[1]["json"]["seq_no"], "1")
+        self.assertEqual(call_args[1]["json"]["session_id"], "d-abcdef12")
         
         # Verify deposit request was inserted
         self.assertEqual(mock_deposit_collection.insert_one.call_count, 1)
@@ -124,28 +124,23 @@ class TestHandlersDeposit(unittest.TestCase):
         self.assertEqual(insert_call["amount"], 500)
         self.assertEqual(insert_call["location"], "โนนิโกะ")
         self.assertEqual(insert_call["reason"], "เงินทอน")
-        self.assertEqual(insert_call["status"], "pending")
+        self.assertEqual(insert_call["status"], "replenishment_started")
         self.assertEqual(insert_call["channel"], "line_bot")
+        self.assertEqual(insert_call["deposit_request_id"], "d-abcdef12")
+        self.assertEqual(insert_call["session_id"], "d-abcdef12")
+        self.assertEqual(insert_call["seq_no"], "1")
         
-        # Verify status was updated to success
-        self.assertEqual(mock_deposit_collection.update_one.call_count, 1)
-        update_call = mock_deposit_collection.update_one.call_args
-        self.assertEqual(update_call[0][1]["$set"]["status"], "success")
+        # No status update on success start (only insert initial doc)
+        self.assertEqual(mock_deposit_collection.update_one.call_count, 0)
         
-        # Verify transaction was inserted
-        self.assertEqual(mock_transactions_collection.insert_one.call_count, 1)
-        transaction_call = mock_transactions_collection.insert_one.call_args[0][0]
-        self.assertEqual(transaction_call["amount"], 500)
-        self.assertEqual(transaction_call["direction"], "deposit")
-        self.assertEqual(transaction_call["type"], "income")
-        self.assertEqual(transaction_call["selectedStorage"], "โนนิโกะ")
-        self.assertEqual(transaction_call["channel"], "line_bot")
+        # No transaction inserted at start step
+        self.assertEqual(mock_transactions_collection.insert_one.call_count, 0)
         
         # Verify reply message was sent
         self.mock_line_bot_api.reply_message.assert_called_once()
         reply_args = self.mock_line_bot_api.reply_message.call_args
-        self.assertIsInstance(reply_args[0][1], TextSendMessage)
-        self.assertIn("ฝากเงินสำเร็จแล้ว", reply_args[0][1].text)
+        self.assertIsInstance(reply_args[0][1], TemplateSendMessage)
+        self.assertIn("เริ่มต้นการฝากเงิน", reply_args[0][1].template.text)
     
     @patch('handlers.deposit_requests_collection')
     @patch('handlers.transactions_collection')
@@ -273,7 +268,7 @@ class TestHandlersDeposit(unittest.TestCase):
         # Mock successful API response
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.text = '{"status": "success"}'
+        mock_response.json.return_value = {"success": True}
         mock_response.raise_for_status = Mock()
         mock_requests_post.return_value = mock_response
         
@@ -291,9 +286,9 @@ class TestHandlersDeposit(unittest.TestCase):
         # Verify API was called correctly
         mock_requests_post.assert_called_once()
         call_args = mock_requests_post.call_args
-        self.assertEqual(call_args[0][0], "http://10.0.0.15:5000/bot/deposit")
-        self.assertEqual(call_args[1]["json"]["amount"], 1000)
-        self.assertEqual(call_args[1]["json"]["branch_id"], "Klangfrozen")
+        self.assertEqual(call_args[0][0], "http://10.0.0.15:5000/replenishment/start")
+        self.assertEqual(call_args[1]["json"]["seq_no"], "1")
+        self.assertEqual(call_args[1]["json"]["session_id"], "d-fedcba09")
         
         # Verify deposit request was inserted
         self.assertEqual(mock_deposit_collection.insert_one.call_count, 1)
@@ -301,23 +296,20 @@ class TestHandlersDeposit(unittest.TestCase):
         self.assertEqual(insert_call["amount"], 1000)
         self.assertEqual(insert_call["location"], "คลังห้องเย็น")
         self.assertEqual(insert_call["reason"], "เงินทอน")
-        self.assertEqual(insert_call["status"], "pending")
+        self.assertEqual(insert_call["status"], "replenishment_started")
+        self.assertEqual(insert_call["deposit_request_id"], "d-fedcba09")
         
-        # Verify status was updated to success
-        self.assertEqual(mock_deposit_collection.update_one.call_count, 1)
-        update_call = mock_deposit_collection.update_one.call_args
-        self.assertEqual(update_call[0][1]["$set"]["status"], "success")
+        # No status update on success start (only insert initial doc)
+        self.assertEqual(mock_deposit_collection.update_one.call_count, 0)
         
-        # Verify transaction was inserted
-        self.assertEqual(mock_transactions_collection.insert_one.call_count, 1)
-        transaction_call = mock_transactions_collection.insert_one.call_args[0][0]
-        self.assertEqual(transaction_call["amount"], 1000)
-        self.assertEqual(transaction_call["selectedStorage"], "คลังห้องเย็น")
+        # No transaction inserted at start step
+        self.assertEqual(mock_transactions_collection.insert_one.call_count, 0)
         
         # Verify reply message was sent
         self.mock_line_bot_api.reply_message.assert_called_once()
         reply_args = self.mock_line_bot_api.reply_message.call_args
-        self.assertIn("ฝากเงินสำเร็จแล้ว", reply_args[0][1].text)
+        self.assertIsInstance(reply_args[0][1], TemplateSendMessage)
+        self.assertIn("เริ่มต้นการฝากเงิน", reply_args[0][1].template.text)
     
     @patch('handlers.deposit_requests_collection')
     @patch('handlers.transactions_collection')
@@ -452,7 +444,7 @@ class TestHandlersDeposit(unittest.TestCase):
                 # Mock successful API response
                 mock_response = Mock()
                 mock_response.status_code = 200
-                mock_response.text = '{"status": "success"}'
+                mock_response.json.return_value = {"success": True}
                 mock_response.raise_for_status = Mock()
                 
                 with patch('handlers.requests.post') as mock_requests_post:

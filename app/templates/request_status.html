@@ -267,9 +267,9 @@
                         <span class="value">{{ request.location }}</span>
                     </div>
                     <div class="item-row">
-                        <span>วันที่ขอ (เวลาไทย)</span>
+                        <span>วัน-เวลาที่ขอ (เวลาไทย)</span>
                         <span class="value">
-                            {{ request.created_date_bkk if request.created_date_bkk is defined else '' }}
+                            {{ request.created_at_bkk_display if request.created_at_bkk_display is defined else (request.created_date_bkk if request.created_date_bkk is defined else '') }}
                         </span>
                     </div>
                 </div>
@@ -308,7 +308,7 @@
                     <div class="item-row">
                         <span>วันที่ทำรายการ (เวลาไทย)</span>
                         <span class="value">
-                            {{ tx.transaction_date_bkk if tx.transaction_date_bkk is defined else selected_date }}
+                            {{ tx.transaction_at_bkk_display if tx.transaction_at_bkk_display is defined else (tx.transaction_date_bkk if tx.transaction_date_bkk is defined else selected_date) }}
                         </span>
                     </div>
                 </div>
@@ -347,9 +347,9 @@
                         <span class="value">{{ dr.location }}</span>
                     </div>
                     <div class="item-row">
-                        <span>วันที่ฝาก (เวลาไทย)</span>
+                        <span>วัน-เวลาที่ฝาก (เวลาไทย)</span>
                         <span class="value">
-                            {{ dr.created_date_bkk if dr.created_date_bkk is defined else '' }}
+                            {{ dr.created_at_bkk_display if dr.created_at_bkk_display is defined else (dr.created_date_bkk if dr.created_date_bkk is defined else '') }}
                         </span>
                     </div>
                 </div>
@@ -385,9 +385,9 @@
                         <span class="value">{{ request.location }}</span>
                     </div>
                     <div class="item-row">
-                        <span>วันที่ขอ (เวลาไทย)</span>
+                        <span>วัน-เวลาที่ขอ (เวลาไทย)</span>
                         <span class="value">
-                            {{ request.created_date_bkk if request.created_date_bkk is defined else '' }}
+                            {{ request.created_at_bkk_display if request.created_at_bkk_display is defined else (request.created_date_bkk if request.created_date_bkk is defined else '') }}
                         </span>
                     </div>
                 </div>

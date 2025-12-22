@@ -52,7 +52,7 @@
     - อัปเดต `updated_at_*` และ `status_history`
     - บันทึกธุรกรรมลง collection `transactions` พร้อมวันที่ตามเวลาไทย
   - ❌ ปฏิเสธ → อัปเดต `withdraw_requests.status = "rejected"` และบันทึกเวลา/ประวัติใน `status_history`
-- สามารถดูหน้า `/money/request-status` เพื่อดูรายการที่อนุมัติ/ปฏิเสธแล้ว
+- สามารถดูหน้า `/money/request-status` เพื่อดูรายการที่อนุมัติ/ปฏิเสธแล้ว **พร้อมวัน-เวลา (เวลาไทย)**
 
 ### 3. โครงสร้างข้อมูลใน MongoDB (สำคัญต่อการทำรายงาน)
 
@@ -94,6 +94,7 @@
 - เพิ่มการบันทึกข้อมูลธุรกรรมใน collection `transactions` ในฐานข้อมูล MongoDB หลังจากอนุมัติคำขอเบิกเงินสำเร็จ
 - ปรับปรุงการเชื่อมต่อฐานข้อมูล MongoDB ให้ใช้ค่าจาก environment variable
 - เพิ่ม utility `time_utils.py` สำหรับดึงเวลาแบบ timezone Bangkok (+7) และ UTC
+- ปรับหน้า `/money/request-status` ให้แสดง **วัน-เวลา (เวลาไทย)** ของรายการถอน/ฝาก แทนการแสดงแค่ “วันที่”
 - ปรับให้:
   - การสร้างคำขอเบิกเงินบันทึก `created_at_bkk`, `created_at_utc`, `created_date_bkk` และ `status_history`
   - การอนุมัติ/ปฏิเสธคำขอจะอัปเดต `updated_at_*` และ `status_history` และบันทึกธุรกรรมพร้อมวันที่ตามเวลาไทย

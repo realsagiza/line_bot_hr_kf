@@ -8,6 +8,7 @@ from flask import Blueprint, render_template, jsonify, redirect, url_for, reques
 from db import requests_collection, deposit_requests_collection, transactions_collection
 from time_utils import now_bangkok, now_bangkok_and_utc
 from http_utils import build_correlation_headers, get_rest_api_ci_base_for_branch
+from services.request_status_service import enrich_request_status_records
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -109,6 +110,13 @@ def request_status():
         deposit_requests_query, {"_id": 0}
     ).sort("created_at_bkk", -1)
     deposit_requests = list(deposit_requests_cursor)
+
+    approved_requests, rejected_requests, deposit_requests, deposit_transactions = enrich_request_status_records(
+        approved_requests=approved_requests,
+        rejected_requests=rejected_requests,
+        deposit_requests=deposit_requests,
+        deposit_transactions=deposit_transactions,
+    )
 
     return render_template(
         "request_status.html",
