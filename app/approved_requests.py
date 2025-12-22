@@ -133,32 +133,24 @@ def request_status():
     approved_requests = [r for r in all_requests if r.get("status") == "approved"]
     rejected_requests = [r for r in all_requests if r.get("status") == "rejected"]
 
-<<<<<<< HEAD
-    # ข้อมูลฝากเงิน (deposit) จาก collection deposit_requests (ระบบใหม่ - replenishment)
-    # แสดงเฉพาะรายการที่เสร็จสิ้นแล้ว (status = "completed")
-    deposit_requests_query = {
-        "created_date_bkk": selected_date,
-        "status": "completed",  # แสดงเฉพาะรายการที่เสร็จสิ้นแล้ว
-=======
     # ข้อมูลฝากเงิน (deposit) จาก collection transactions (ระบบเก่า)
     deposit_query = {
         "direction": "deposit",
         "transaction_date_bkk": selected_date,
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
     }
     if selected_branch in ("คลังห้องเย็น", "โนนิโกะ"):
-        deposit_requests_query["location"] = selected_branch
+        deposit_query["selectedStorage"] = selected_branch
 
-    deposit_requests_cursor = deposit_requests_collection.find(
-        deposit_requests_query, {"_id": 0}
-    ).sort("created_at_bkk", -1)
-    deposit_requests = list(deposit_requests_cursor)
+    deposit_cursor = transactions_collection.find(deposit_query, {"_id": 0}).sort(
+        "transaction_at_bkk", -1
+    )
+    deposit_transactions = list(deposit_cursor)
 
     # ข้อมูลฝากเงิน (deposit) จาก collection deposit_requests (ระบบใหม่ - replenishment)
     # แสดงเฉพาะรายการที่เสร็จสิ้นแล้ว (status = "completed")
     deposit_requests_query = {
         "created_date_bkk": selected_date,
-        "status": "completed",  # แสดงเฉพาะรายการที่เสร็จสิ้นแล้ว
+        "status": "completed",
     }
     if selected_branch in ("คลังห้องเย็น", "โนนิโกะ"):
         deposit_requests_query["location"] = selected_branch
@@ -179,10 +171,7 @@ def request_status():
         "request_status.html",
         approved_requests=approved_requests,
         rejected_requests=rejected_requests,
-<<<<<<< HEAD
-=======
         deposit_transactions=deposit_transactions,
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
         deposit_requests=deposit_requests,
         selected_date=selected_date,
         selected_branch=selected_branch,
@@ -387,12 +376,8 @@ def approve_request(request_id):
                 },
             )
             
-<<<<<<< HEAD
             # บันทึกค่าใช้จ่ายเงินสดลง transactions_collection สำหรับใช้ในระบบบัญชี
             save_expense_to_transactions(request_data, location, amount, reason, date_bkk, now_bkk, now_utc)
-            
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
             logger.info(f"✅ อนุมัติคำขอ {request_id} - Cashout สำเร็จ")
             return redirect("/money/approved-requests")
 
@@ -585,12 +570,8 @@ def approve_request(request_id):
                 },
             )
             
-<<<<<<< HEAD
             # บันทึกค่าใช้จ่ายเงินสดลง transactions_collection สำหรับใช้ในระบบบัญชี
             save_expense_to_transactions(request_data, location, amount, reason, date_bkk, now_bkk, now_utc)
-            
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
             logger.info(f"✅ อนุมัติคำขอ {request_id} - Cashout สำเร็จ")
             return redirect("/money/approved-requests")
 
@@ -881,14 +862,10 @@ def api_deposit_request():
         "seq_no": seq_no,
         "branch_base_url": base,
         "location": location_text,
-<<<<<<< HEAD
         "reason": reason,
         "trace_id": trace_id,
         "request_id": request_header_id,
         "sale_id": deposit_request_id
-=======
-        "reason": reason
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
     })
 
 @approved_requests_bp.route("/money/api/deposit-status", methods=["GET"])
@@ -1207,7 +1184,6 @@ def api_socket_latest():
         }), 500
 
 
-<<<<<<< HEAD
 @approved_requests_bp.route("/money/api/socket-latest-proxy", methods=["GET"])
 def api_socket_latest_proxy():
     """
@@ -1294,10 +1270,6 @@ def api_socket_latest_proxy():
             "success": False,
             "ts": 0
         }), 500
-
-
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
 @approved_requests_bp.route("/money/deposit-monitor", methods=["GET"])
 def deposit_monitor():
     """หน้า UI สำหรับติดตามการฝากเงิน"""
