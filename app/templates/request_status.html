@@ -282,27 +282,32 @@
 
         <div class="card">
             <div class="section-title">
-<<<<<<< HEAD
-                <span>💵 รายการฝากเงิน (ระบบใหม่)</span>
-                <span class="pill">{{ deposit_requests|length }} รายการ</span>
-=======
                 <span>💰 รายการฝากเงินสด (ระบบเก่า)</span>
                 <span class="pill">{{ deposit_transactions|length }} รายการ</span>
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
             </div>
-            {% if deposit_requests %}
+            {% if deposit_transactions %}
             <div class="list">
-                {% for dr in deposit_requests %}
-                <div class="item approved">
+                {% for tx in deposit_transactions %}
+                <div class="item">
                     <div class="item-header">
-                        <div class="item-id">หมายเลขคำขอ: {{ dr.deposit_request_id }}</div>
-                        <div class="status-badge approved">เสร็จสิ้น</div>
+                        <div class="item-id">
+                            เหตุผล: {{ tx.name }}
+                        </div>
+                        <span class="pill">
+                            {{ tx.selectedStorage }}
+                        </span>
                     </div>
                     <div class="item-row">
                         <span>จำนวนเงิน</span>
+                        <span class="value">{{ tx.amount }} บาท</span>
+                    </div>
+                    <div class="item-row">
+                        <span>ประเภท</span>
+                        <span class="value">ฝากเงิน ({{ tx.type }})</span>
+                    </div>
+                    <div class="item-row">
+                        <span>วันที่ทำรายการ (เวลาไทย)</span>
                         <span class="value">
-<<<<<<< HEAD
-=======
                             {{ tx.transaction_at_bkk_display if tx.transaction_at_bkk_display is defined else (tx.transaction_date_bkk if tx.transaction_date_bkk is defined else selected_date) }}
                         </span>
                     </div>
@@ -330,7 +335,6 @@
                     <div class="item-row">
                         <span>จำนวนเงิน</span>
                         <span class="value">
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
                             {% if dr.amount %}{{ dr.amount }} บาท{% else %}-{% endif %}
                         </span>
                     </div>
@@ -343,15 +347,9 @@
                         <span class="value">{{ dr.location }}</span>
                     </div>
                     <div class="item-row">
-<<<<<<< HEAD
-                        <span>วันที่ฝาก (เวลาไทย)</span>
-                        <span class="value">
-                            {{ dr.created_date_bkk if dr.created_date_bkk is defined else '' }}
-=======
                         <span>วัน-เวลาที่ฝาก (เวลาไทย)</span>
                         <span class="value">
                             {{ dr.created_at_bkk_display if dr.created_at_bkk_display is defined else (dr.created_date_bkk if dr.created_date_bkk is defined else '') }}
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
                         </span>
                     </div>
                 </div>
