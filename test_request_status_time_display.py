@@ -36,23 +36,20 @@ class TestRequestStatusService(unittest.TestCase):
         approved = [{"request_id": "r1", "created_at_bkk": "2024-01-15T10:30:00+07:00"}]
         rejected = [{"request_id": "r2", "created_date_bkk": "2024-01-15"}]
         deposit_requests = [{"deposit_request_id": "d1", "created_at_bkk": "2024-01-15T09:05:00+07:00"}]
-        deposit_transactions = [{"name": "x", "transaction_at_bkk": "2024-01-15T08:01:00+07:00"}]
 
-        a, r, dr, tx = enrich_request_status_records(
+        a, r, dr = enrich_request_status_records(
             approved_requests=approved,
             rejected_requests=rejected,
             deposit_requests=deposit_requests,
-            deposit_transactions=deposit_transactions,
         )
 
         self.assertEqual(a[0]["created_at_bkk_display"], "2024-01-15 10:30")
         self.assertEqual(r[0]["created_at_bkk_display"], "2024-01-15 00:00")
         self.assertEqual(dr[0]["created_at_bkk_display"], "2024-01-15 09:05")
-        self.assertEqual(tx[0]["transaction_at_bkk_display"], "2024-01-15 08:01")
 
         # Ensure inputs not mutated (pure)
         self.assertNotIn("created_at_bkk_display", approved[0])
-        self.assertNotIn("transaction_at_bkk_display", deposit_transactions[0])
+        self.assertNotIn("created_at_bkk_display", deposit_requests[0])
 
 
 if __name__ == "__main__":

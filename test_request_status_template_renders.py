@@ -18,7 +18,6 @@ class TestRequestStatusTemplateRenders(unittest.TestCase):
         html = tpl.render(
             approved_requests=[],
             rejected_requests=[],
-            deposit_transactions=[],
             deposit_requests=[],
             selected_date="2025-12-22",
             selected_branch="all",

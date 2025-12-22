@@ -282,45 +282,6 @@
 
         <div class="card">
             <div class="section-title">
-                <span>💰 รายการฝากเงินสด (ระบบเก่า)</span>
-                <span class="pill">{{ deposit_transactions|length }} รายการ</span>
-            </div>
-            {% if deposit_transactions %}
-            <div class="list">
-                {% for tx in deposit_transactions %}
-                <div class="item">
-                    <div class="item-header">
-                        <div class="item-id">
-                            เหตุผล: {{ tx.name }}
-                        </div>
-                        <span class="pill">
-                            {{ tx.selectedStorage }}
-                        </span>
-                    </div>
-                    <div class="item-row">
-                        <span>จำนวนเงิน</span>
-                        <span class="value">{{ tx.amount }} บาท</span>
-                    </div>
-                    <div class="item-row">
-                        <span>ประเภท</span>
-                        <span class="value">ฝากเงิน ({{ tx.type }})</span>
-                    </div>
-                    <div class="item-row">
-                        <span>วันที่ทำรายการ (เวลาไทย)</span>
-                        <span class="value">
-                            {{ tx.transaction_at_bkk_display if tx.transaction_at_bkk_display is defined else (tx.transaction_date_bkk if tx.transaction_date_bkk is defined else selected_date) }}
-                        </span>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="empty">ยังไม่มีรายการฝากเงินสำหรับวันที่และสาขานี้</div>
-            {% endif %}
-        </div>
-
-        <div class="card">
-            <div class="section-title">
                 <span>💵 รายการฝากเงิน (ระบบใหม่)</span>
                 <span class="pill">{{ deposit_requests|length }} รายการ</span>
             </div>
