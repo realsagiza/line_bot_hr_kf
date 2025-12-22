@@ -524,12 +524,9 @@
     let currentBranchBaseUrl = null;
     let currentSessionId = null;
     let currentSeqNo = null;
-<<<<<<< HEAD
     let currentTraceId = null;
     let currentRequestId = null;
     let currentSaleId = null;
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
     let isDepositEnded = false;
     let depositStartTime = null;
     let maxDepositAmount = 0; // เก็บยอดสูงสุดที่เคยได้รับ
@@ -597,12 +594,9 @@
         currentBranchBaseUrl = data.branch_base_url;
         currentSessionId = data.session_id;
         currentSeqNo = data.seq_no;
-<<<<<<< HEAD
         currentTraceId = data.trace_id;
         currentRequestId = data.request_id;
         currentSaleId = data.sale_id || data.deposit_request_id;
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
         
         // เก็บข้อมูลสำหรับบันทึกตอนจบฝาก
         currentDepositUserId = currentUserId;
@@ -657,8 +651,7 @@
       }
 
       try {
-<<<<<<< HEAD
-        // ใช้ proxy endpoint แทนการยิงตรงไปที่ new_ci_api เพื่อหลีกเลี่ยง CORS issue
+        // ใช้ proxy endpoint แทนการยิงตรงไปที่ branch_base_url เพื่อหลีกเลี่ยง CORS issue
         const params = new URLSearchParams({
           branch_base_url: currentBranchBaseUrl
         });
@@ -687,27 +680,13 @@
           cache: 'no-cache',
           headers: {
             'Content-Type': 'application/json'
-=======
-        const cacheBuster = `?_t=${Date.now()}`;
-        const url = `${currentBranchBaseUrl}/socket/latest${cacheBuster}`;
-        console.log('Polling:', url); // Debug log
-        
-        const response = await fetch(url, {
-          cache: 'no-cache',
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
           }
         });
         
         if (!response.ok) {
           console.error('Poll error: HTTP', response.status, response.statusText);
-<<<<<<< HEAD
           const errorText = await response.text();
           console.error('Poll error response:', errorText);
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
           document.getElementById('deposit-status-text').textContent = `⚠️ ไม่สามารถเชื่อมต่อ API ได้ (HTTP ${response.status})`;
           document.getElementById('deposit-status-text').style.background = '#fee2e2';
           document.getElementById('deposit-status-text').style.color = '#991b1b';
@@ -717,13 +696,8 @@
         const data = await response.json();
         console.log('Poll response:', data); // Debug log
 
-<<<<<<< HEAD
         // Handle response format: {status: "ok", amount_baht: 0, success: true, ts: 0}
         if (data.status === "ok" && data.success !== false) {
-=======
-        // Handle response format: {amount_baht: 0, success: true, ts: 0}
-        if (data.success !== false) {
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
           const amount = data.amount_baht || 0;
           const ts = data.ts || 0;
           
@@ -756,24 +730,15 @@
             document.getElementById('deposit-status-text').style.color = '#92400e';
           }
         } else {
-<<<<<<< HEAD
           console.error('Poll error:', data.message || data.error);
           document.getElementById('deposit-status-text').textContent = `⚠️ API Error: ${data.message || data.error || 'Unknown error'}`;
-=======
-          console.error('Poll error:', data.error);
-          document.getElementById('deposit-status-text').textContent = `⚠️ API Error: ${data.error || 'Unknown error'}`;
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
           document.getElementById('deposit-status-text').style.background = '#fee2e2';
           document.getElementById('deposit-status-text').style.color = '#991b1b';
         }
       } catch (err) {
         console.error('Poll error:', err);
-<<<<<<< HEAD
         const errorMessage = err.message || 'load failed';
         document.getElementById('deposit-status-text').textContent = `⚠️ เกิดข้อผิดพลาดในการดึงข้อมูล: ${errorMessage}`;
-=======
-        document.getElementById('deposit-status-text').textContent = `⚠️ เกิดข้อผิดพลาดในการดึงข้อมูล: ${err.message}`;
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
         document.getElementById('deposit-status-text').style.background = '#fee2e2';
         document.getElementById('deposit-status-text').style.color = '#991b1b';
       }
@@ -830,12 +795,9 @@
           currentBranchBaseUrl = null;
           currentSessionId = null;
           currentSeqNo = null;
-<<<<<<< HEAD
           currentTraceId = null;
           currentRequestId = null;
           currentSaleId = null;
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
           maxDepositAmount = 0; // Reset ยอดสูงสุด
           depositStartTime = null;
           currentDepositUserId = null;
@@ -906,12 +868,9 @@
           currentBranchBaseUrl = null;
           currentSessionId = null;
           currentSeqNo = null;
-<<<<<<< HEAD
           currentTraceId = null;
           currentRequestId = null;
           currentSaleId = null;
-=======
->>>>>>> 36793e9f29e766e120f7d4ab5afca6fd228e0407
           maxDepositAmount = 0; // Reset ยอดสูงสุด
           depositStartTime = null;
           currentDepositUserId = null;
