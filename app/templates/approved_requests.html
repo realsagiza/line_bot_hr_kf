@@ -156,6 +156,49 @@
         text-align: center;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
+      .auth-loading {
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 32px 16px;
+        text-align: center;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .auth-loading .title {
+        justify-content: center;
+      }
+      .auth-loading .spinner {
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        border: 3px solid #e5e7eb;
+        border-top-color: var(--primary);
+        margin: 14px auto 0;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .auth-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .auth-actions a, .auth-actions button {
+        border-radius: 999px;
+        border: 1px solid #e5e7eb;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        background: #ffffff;
+        cursor: pointer;
+        text-decoration: none;
+        color: #111827;
+      }
+      .auth-actions a.primary {
+        background: linear-gradient(135deg, var(--primary), #1d4ed8);
+        color: #ffffff;
+        border: none;
+      }
       .hidden { display: none; }
   </style>
   
@@ -173,36 +216,90 @@
     ];
 
     window.onload = function() {
-      liff.init({ liffId: "2005595780-lYJx1JyJ" })
-        .then(() => {
-          console.log("LIFF initialized");
-          // เรียกดูข้อมูลโปรไฟล์ผู้ใช้
-          return liff.getProfile();
-        })
+      const loadingEl = document.getElementById('auth-loading');
+      const contentEl = document.getElementById('content');
+      const noAccessEl = document.getElementById('no-access');
+
+      const showLoading = () => {
+        loadingEl.classList.remove('hidden');
+        contentEl.classList.add('hidden');
+        noAccessEl.classList.add('hidden');
+      };
+
+      const showError = (html) => {
+        loadingEl.classList.add('hidden');
+        contentEl.classList.add('hidden');
+        noAccessEl.innerHTML = html;
+        noAccessEl.classList.remove('hidden');
+      };
+
+      const showContent = () => {
+        loadingEl.classList.add('hidden');
+        contentEl.classList.remove('hidden');
+        noAccessEl.classList.add('hidden');
+      };
+
+      showLoading();
+
+      // กันกรณี SDK โหลดไม่ขึ้น / init ค้าง
+      const timeoutMs = 7000;
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('LIFF init timeout')), timeoutMs)
+      );
+
+      const initPromise = (async () => {
+        if (!window.liff) throw new Error('LIFF SDK not loaded');
+        await liff.init({ liffId: "2005595780-lYJx1JyJ" });
+        const profile = await liff.getProfile();
+        return profile;
+      })();
+
+      Promise.race([initPromise, timeoutPromise])
         .then(profile => {
-          console.log("User ID:", profile.userId);
+          const userId = profile && profile.userId ? profile.userId : '';
           // ตรวจสอบว่า userId นี้อยู่ในรายการอนุญาตหรือไม่
-          if (!allowedUserIds.includes(profile.userId)) {
-            document.getElementById('content').classList.add('hidden');
-            document.getElementById('no-access').innerHTML = `
-              <h2>คุณไม่มีสิทธิ์เข้าถึงแอพนี้</h2>
-              <p>User ID ของคุณ: ${profile.userId}</p>
-              <p>กรุณาติดต่อผู้ดูแลระบบหากคุณเชื่อว่ามีความผิดพลาด</p>
-            `;
-            document.getElementById('no-access').classList.remove('hidden');
+          if (!allowedUserIds.includes(userId)) {
+            showError(`
+              <div class="no-access-wrapper">
+                <h2>คุณไม่มีสิทธิ์เข้าถึงหน้าจอนี้</h2>
+                <p style="font-size:13px;color:#4b5563;">
+                  User ID ของคุณ: ${userId || '-'}<br>
+                  หากคิดว่ามีความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ
+                </p>
+                <div class="auth-actions">
+                  <button type="button" onclick="location.reload()">รีเฟรช</button>
+                </div>
+              </div>
+            `);
           } else {
-            // ถ้า userId อยู่ในรายการอนุญาต ก็แสดงเนื้อหาได้ตามปกติ
-            document.getElementById('content').classList.remove('hidden');
-            document.getElementById('no-access').classList.add('hidden');
+            showContent();
           }
         })
         .catch(err => {
           console.error("LIFF initialization failed", err);
+          showError(`
+            <div class="no-access-wrapper">
+              <h2>ไม่สามารถตรวจสอบสิทธิ์ผู้ใช้งานได้</h2>
+              <p style="font-size:13px;color:#4b5563;">
+                กรุณาเปิดหน้านี้ผ่าน LINE (LIFF) หรือเช็คอินเทอร์เน็ต แล้วลองใหม่อีกครั้ง<br>
+                รายละเอียด: ${(err && err.message) ? err.message : 'unknown error'}
+              </p>
+              <div class="auth-actions">
+                <button type="button" onclick="location.reload()">รีเฟรช</button>
+              </div>
+            </div>
+          `);
         });
     };
   </script>
 </head>
 <body>
+  <div id="auth-loading" class="auth-loading">
+    <div class="title">🔒 กำลังตรวจสอบสิทธิ์ผู้ใช้งาน</div>
+    <div class="subtitle">โปรดรอสักครู่…</div>
+    <div class="spinner" aria-label="loading"></div>
+  </div>
+
   <div id="content" class="hidden">
     <div class="app">
       <div class="card">
