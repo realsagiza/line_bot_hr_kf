@@ -9,6 +9,7 @@ from db import requests_collection, deposit_requests_collection, transactions_co
 from time_utils import now_bangkok, now_bangkok_and_utc
 from http_utils import build_correlation_headers, get_rest_api_ci_base_for_branch
 from services.request_status_service import enrich_request_status_records
+from id_utils import generate_request_id
 
 # ✅ ตั้งค่า Logging ให้ใช้งานได้
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -661,8 +662,6 @@ def api_withdraw_request():
         return jsonify({"status": "error", "message": "กรุณาเลือกสถานที่รับเงินให้ถูกต้อง"}), 400
 
     # สร้างหมายเลขคำขอ
-    from handlers import generate_request_id  # นำมาใช้ซ้ำเพื่อไม่ต้องสร้างซ้ำ
-
     request_id = generate_request_id()
 
     now_bkk, now_utc = now_bangkok_and_utc()
