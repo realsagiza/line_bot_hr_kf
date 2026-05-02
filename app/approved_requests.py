@@ -5,6 +5,7 @@ import json
 import requests
 import threading
 from flask import Blueprint, render_template, jsonify, redirect, url_for, request
+from bson import json_util
 from db import requests_collection, deposit_requests_collection, transactions_collection
 from time_utils import now_bangkok, now_bangkok_and_utc
 from http_utils import build_correlation_headers, get_rest_api_ci_base_for_branch
@@ -635,6 +636,432 @@ def reject_request(request_id):
         },
     )
     return redirect("/money/approved-requests")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  ฟีเจอร์ใหม่: เบิกเงินแบบระบุ Denominations เอง (Manual)
+# ═══════════════════════════════════════════════════════════════
+
+# Mapping ค่าเงิน (สตางค์ → บาท) สำหรับแสดงผล
+FV_TO_BAHT = {
+    10000: 100,
+    2000: 20,
+    1000: 10,
+    500: 5,
+    200: 2,
+    100: 1,
+}
+
+FV_LABELS = {
+    10000: "แบงค์ 100 บาท",
+    2000: "แบงค์ 20 บาท",
+    1000: "เหรียญ 10 บาท",
+    500: "เหรียญ 5 บาท",
+    200: "เหรียญ 2 บาท",
+    100: "เหรียญ 1 บาท",
+}
+
+
+def _parse_inventory_response(inventory_data: dict) -> dict:
+    """
+    แปลง response จาก /inventory/check ให้อยู่ในรูป {fv: available_pieces}
+    โดย fv เป็นหน่วยสตางค์ (10000 = 100 บาท)
+    """
+    available = {}
+    try:
+        body = inventory_data.get("Body") or inventory_data.get("response", {}).get("Body") or []
+        if not body:
+            body = inventory_data.get("result", {}).get("Body", [])
+        inv_response = body[0].get("InventoryResponse", [{}])[0]
+        cash = inv_response.get("Cash", [{}])[0]
+        for denom in cash.get("Denomination", []):
+            fv = int(denom.get("fv", 0))
+            pieces = int(denom.get("Piece", [{}])[0].get("value", 0)) if isinstance(denom.get("Piece"), list) else int(denom.get("Piece", 0))
+            available[fv] = pieces
+    except Exception as e:
+        logger.warning(f"⚠️ [INVENTORY_PARSE] Failed to parse inventory: {e}")
+    return available
+
+
+def _denominations_to_baht_total(denominations: dict) -> float:
+    """คำนวณยอดรวมจาก denominations (รับ key เป็นสตางค์)"""
+    total = 0
+    for fv, pieces in denominations.items():
+        total += int(fv) * int(pieces)
+    return total / 100.0
+
+
+@approved_requests_bp.route("/money/inventory", methods=["GET"])
+def get_inventory():
+    """
+    ดึงข้อมูล inventory (ยอดเงินในเครื่อง) จาก REST_API_CI
+    ใช้สำหรับให้พนักงานดูก่อนเลือก denominations
+    
+    Query params:
+        branch: "noniko" หรือ "klangfrozen" (default: noniko)
+    
+    Returns:
+        JSON { success, inventory: { fv: pieces, ... }, total_baht, denominations_info }
+    """
+    branch = request.args.get("branch", "noniko").strip().lower()
+    
+    # Map branch to REST_API_CI base
+    if branch in ("noniko",):
+        base = get_rest_api_ci_base_for_branch("NONIKO")
+    elif branch in ("klangfrozen", "cold_storage", "คลังห้องเย็น"):
+        base = get_rest_api_ci_base_for_branch("Klangfrozen")
+    else:
+        return jsonify({"success": False, "error": f"ไม่พบสาขา: {branch}"}), 400
+    
+    headers, meta = build_correlation_headers(sale_id=f"inv-{uuid.uuid4().hex[:6]}")
+    
+    try:
+        inv_url = f"{base}/inventory/check"
+        logger.info(f"📤 [INVENTORY] กำลังดึง inventory จาก {inv_url}")
+        
+        resp = requests.get(inv_url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        if not data.get("success"):
+            logger.error(f"❌ [INVENTORY] API error: {data.get('error', 'unknown')}")
+            return jsonify({"success": False, "error": data.get("error", "ไม่สามารถดึงข้อมูล inventory ได้")}), 500
+        
+        # Parse inventory
+        inventory_raw = data.get("result", data)
+        available = _parse_inventory_response(inventory_raw)
+        
+        # สร้างข้อมูล denominations สำหรับแสดงผล
+        denom_info = []
+        for fv in sorted(available.keys(), reverse=True):
+            baht = FV_TO_BAHT.get(fv, fv // 100)
+            label = FV_LABELS.get(fv, f"{baht} บาท")
+            denom_info.append({
+                "fv": fv,
+                "baht": baht,
+                "label": label,
+                "available": available.get(fv, 0),
+            })
+        
+        total_baht = sum(fv * pieces for fv, pieces in available.items()) / 100.0
+        
+        return jsonify({
+            "success": True,
+            "inventory": available,
+            "total_baht": total_baht,
+            "denominations": denom_info,
+            "branch": branch,
+        }), 200
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [INVENTORY] Connection error: {e}")
+        return jsonify({"success": False, "error": f"ไม่สามารถเชื่อมต่อเครื่องได้: {str(e)}"}), 502
+    except Exception as e:
+        logger.error(f"❌ [INVENTORY] Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@approved_requests_bp.route("/money/submit-manual-withdraw", methods=["POST"])
+def submit_manual_withdraw():
+    """
+    สร้างคำขอเบิกเงินแบบระบุ denominations เอง
+    
+    Request body (JSON):
+    {
+        "user_id": "LINE user id",
+        "location": "คลังห้องเย็น" หรือ "โนนิโกะ",
+        "reason": "ice" | "fuel" | "other" | string,
+        "reason_text": "ข้อความเหตุผล (ถ้ามี)",
+        "license_plate": "ทะเบียนรถ (ถ้า fuel)",
+        "denominations": { "10000": 1, "2000": 3, ... }
+    }
+    
+    ตรวจสอบ:
+    - denominations ต้องไม่เกินยอดในเครื่องจริง
+    - ต้องมีอย่างน้อย 1 รายการ
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "กรุณาส่งข้อมูลในรูปแบบ JSON"}), 400
+        
+        user_id = data.get("user_id", "").strip()
+        location = data.get("location", "").strip()
+        reason_code = data.get("reason", "other").strip()
+        reason_text = data.get("reason_text", "").strip()
+        license_plate = data.get("license_plate", "").strip()
+        raw_denominations = data.get("denominations", {})
+        
+        # ── Validate ──
+        if not user_id:
+            return jsonify({"success": False, "error": "กรุณาระบุ user_id"}), 400
+        if not location:
+            return jsonify({"success": False, "error": "กรุณาเลือกสถานที่รับเงิน"}), 400
+        if not raw_denominations or not isinstance(raw_denominations, dict):
+            return jsonify({"success": False, "error": "กรุณาระบุ denominations"}), 400
+        
+        # แปลง keys เป็น int และกรองเอาเฉพาะค่าที่รู้จัก
+        denominations = {}
+        for k, v in raw_denominations.items():
+            try:
+                fv = int(k)
+                pieces = int(v)
+                if pieces > 0 and fv in FV_TO_BAHT:
+                    denominations[fv] = pieces
+            except (ValueError, TypeError):
+                continue
+        
+        if not denominations:
+            return jsonify({"success": False, "error": "กรุณาระบุจำนวนเงินอย่างน้อย 1 รายการ"}), 400
+        
+        # ── ตรวจสอบยอดในเครื่อง ──
+        branch_id = "NONIKO" if "โนนิโกะ" in location else "Klangfrozen"
+        base = get_rest_api_ci_base_for_branch(branch_id)
+        headers_inv, meta_inv = build_correlation_headers(sale_id=f"inv-check-{uuid.uuid4().hex[:6]}")
+        
+        try:
+            inv_resp = requests.get(f"{base}/inventory/check", headers=headers_inv, timeout=10)
+            inv_resp.raise_for_status()
+            inv_data = inv_resp.json()
+            inventory_raw = inv_data.get("result", inv_data)
+            available = _parse_inventory_response(inventory_raw)
+        except Exception as e:
+            logger.warning(f"⚠️ [MANUAL_WITHDRAW] ไม่สามารถตรวจสอบ inventory ได้: {e}")
+            available = {}
+        
+        # ตรวจสอบว่าแต่ละ denomination ไม่เกินที่มีในเครื่อง
+        over_limit = []
+        for fv, pieces in denominations.items():
+            max_avail = available.get(fv, 999999)  # ถ้าดึง inventory ไม่ได้ ให้ผ่าน
+            if pieces > max_avail:
+                over_limit.append(f"{FV_LABELS.get(fv, f'{fv//100} บาท')} (ขอ {pieces}, มี {max_avail})")
+        
+        if over_limit:
+            return jsonify({
+                "success": False,
+                "error": f"จำนวนเงินที่ขอเกินยอดที่มีในเครื่อง: {'; '.join(over_limit)}",
+                "over_limit": over_limit,
+            }), 400
+        
+        # ── คำนวณยอดรวม ──
+        total_amount = _denominations_to_baht_total(denominations)
+        
+        # ── Map reason ──
+        reason_map = {
+            "ice": "ซื้อน้ำแข็ง",
+            "fuel": "เติมน้ำมัน",
+            "other": reason_text or "อื่นๆ",
+        }
+        display_reason = reason_map.get(reason_code, reason_text or reason_code)
+        
+        # ── สร้าง request_id ──
+        request_id = generate_request_id()
+        
+        # ── บันทึกลง MongoDB ──
+        now_bkk, now_utc = now_bangkok_and_utc()
+        date_bkk = now_bkk.date().isoformat()
+        
+        doc = {
+            "request_id": request_id,
+            "user_id": user_id,
+            "amount": str(total_amount),
+            "amount_baht": total_amount,
+            "reason": display_reason,
+            "reason_code": reason_code,
+            "license_plate": license_plate or None,
+            "location": location,
+            "branch_id": branch_id,
+            "status": "pending",
+            "cashout_mode": "manual",  # ← ระบุว่าเป็นแบบ manual
+            "denominations": denominations,  # ← เก็บ denominations ที่เลือก
+            "denominations_baht": {str(FV_TO_BAHT.get(k, k//100)): v for k, v in denominations.items()},
+            "created_at_bkk": now_bkk.isoformat(),
+            "created_at_utc": now_utc.isoformat(),
+            "created_date_bkk": date_bkk,
+            "updated_at_bkk": None,
+            "updated_at_utc": None,
+            "channel": "line_bot_liff",
+            "status_history": [
+                {
+                    "status": "pending",
+                    "at_bkk": now_bkk.isoformat(),
+                    "at_utc": now_utc.isoformat(),
+                    "date_bkk": date_bkk,
+                    "by": user_id,
+                }
+            ],
+        }
+        
+        requests_collection.insert_one(doc)
+        logger.info(f"✅ [MANUAL_WITHDRAW] สร้างคำขอ {request_id} สำเร็จ: {denominations} = {total_amount} บาท")
+        
+        return jsonify({
+            "success": True,
+            "request_id": request_id,
+            "amount_baht": total_amount,
+            "denominations": denominations,
+            "message": f"สร้างคำขอเบิกเงิน {total_amount:.0f} บาท สำเร็จ รอหัวหน้าอนุมัติ",
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ [MANUAL_WITHDRAW] Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@approved_requests_bp.route("/money/approve-manual/<request_id>", methods=["POST"])
+def approve_manual_request(request_id):
+    """
+    อนุมัติคำขอเบิกเงินแบบ manual (ระบุ denominations เอง)
+    ข้าม /cashout/plan → ส่ง /cashout/request โดยตรงด้วย denominations ที่เลือก
+    """
+    logger.info(f"📢 กำลังอนุมัติคำขอแบบ manual: {request_id}")
+    
+    request_data = requests_collection.find_one({"request_id": request_id})
+    if not request_data:
+        return jsonify({"status": "error", "message": f"ไม่พบคำขอ {request_id}"}), 404
+    
+    # ตรวจสอบว่าเป็น manual mode จริง
+    if request_data.get("cashout_mode") != "manual":
+        logger.warning(f"⚠️ คำขอ {request_id} ไม่ใช่ manual mode (mode={request_data.get('cashout_mode')}) ใช้ approve ปกติแทน")
+        return approve_request(request_id)
+    
+    if request_data.get("status") != "pending":
+        return redirect("/money/approved-requests")
+    
+    amount = request_data.get("amount_baht") or request_data.get("amount")
+    location = request_data.get("location")
+    reason = request_data.get("reason", "")
+    denominations = request_data.get("denominations", {})
+    
+    if not denominations:
+        return jsonify({"status": "error", "message": "ไม่พบข้อมูล denominations ในคำขอ"}), 400
+    
+    # ── ตั้งสถานะ awaiting_machine ──
+    now_bkk, now_utc = now_bangkok_and_utc()
+    date_bkk = now_bkk.date().isoformat()
+    
+    requests_collection.update_one(
+        {"request_id": request_id},
+        {
+            "$set": {
+                "status": "awaiting_machine",
+                "updated_at_bkk": now_bkk.isoformat(),
+                "updated_at_utc": now_utc.isoformat(),
+            },
+            "$push": {
+                "status_history": {
+                    "status": "awaiting_machine",
+                    "at_bkk": now_bkk.isoformat(),
+                    "at_utc": now_utc.isoformat(),
+                    "date_bkk": date_bkk,
+                    "by": "approver_ui",
+                }
+            },
+        },
+    )
+    
+    # ── เลือก base URL ตามสาขา ──
+    branch_id = "NONIKO" if "โนนิโกะ" in (location or "") else "Klangfrozen"
+    base = get_rest_api_ci_base_for_branch(branch_id)
+    headers, meta = build_correlation_headers(sale_id=request_id)
+    
+    try:
+        # ✅ ข้าม /cashout/plan → ส่ง /cashout/request โดยตรง
+        request_url = f"{base}/cashout/request"
+        request_payload = {
+            "denominations": denominations
+        }
+        
+        logger.info(f"📤 [MANUAL_CASHOUT] ส่ง /cashout/request (manual) ไปยัง {request_url}: {request_payload}")
+        
+        resp = requests.post(request_url, json=request_payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        resp_data = resp.json()
+        
+        if not resp_data.get("success"):
+            error_msg = resp_data.get("error", "Unknown error")
+            logger.error(f"❌ [MANUAL_CASHOUT] /cashout/request failed: {error_msg}")
+            now_bkk, now_utc = now_bangkok_and_utc()
+            requests_collection.update_one(
+                {"request_id": request_id},
+                {
+                    "$set": {
+                        "status": "error",
+                        "machine_error": f"/cashout/request failed: {error_msg}",
+                        "updated_at_bkk": now_bkk.isoformat(),
+                        "updated_at_utc": now_utc.isoformat(),
+                    },
+                    "$push": {
+                        "status_history": {
+                            "status": "error",
+                            "at_bkk": now_bkk.isoformat(),
+                            "at_utc": now_utc.isoformat(),
+                            "date_bkk": now_bkk.date().isoformat(),
+                            "by": "approver_ui",
+                        }
+                    },
+                },
+            )
+            return jsonify({"status": "error", "message": error_msg}), 500
+        
+        # ✅ สำเร็จ → อัปเดตสถานะ
+        now_bkk, now_utc = now_bangkok_and_utc()
+        date_bkk = now_bkk.date().isoformat()
+        
+        requests_collection.update_one(
+            {"request_id": request_id},
+            {
+                "$set": {
+                    "status": "approved",
+                    "updated_at_bkk": now_bkk.isoformat(),
+                    "updated_at_utc": now_utc.isoformat(),
+                    "cashout_request_response": resp_data,
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "approved",
+                        "at_bkk": now_bkk.isoformat(),
+                        "at_utc": now_utc.isoformat(),
+                        "date_bkk": date_bkk,
+                        "by": "approver_ui",
+                    }
+                },
+            },
+        )
+        
+        # บันทึก transactions
+        save_expense_to_transactions(request_data, location, amount, reason, date_bkk, now_bkk, now_utc)
+        logger.info(f"✅ [MANUAL_CASHOUT] อนุมัติคำขอ {request_id} สำเร็จ (manual denominations)")
+        
+        return redirect("/money/approved-requests")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [MANUAL_CASHOUT] Request error: {e}")
+        now_bkk, now_utc = now_bangkok_and_utc()
+        requests_collection.update_one(
+            {"request_id": request_id},
+            {
+                "$set": {
+                    "status": "error",
+                    "machine_error": str(e),
+                    "updated_at_bkk": now_bkk.isoformat(),
+                    "updated_at_utc": now_utc.isoformat(),
+                },
+                "$push": {
+                    "status_history": {
+                        "status": "error",
+                        "at_bkk": now_bkk.isoformat(),
+                        "at_utc": now_utc.isoformat(),
+                        "date_bkk": now_bkk.date().isoformat(),
+                        "by": "approver_ui",
+                    }
+                },
+            },
+        )
+        return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception as e:
+        logger.error(f"❌ [MANUAL_CASHOUT] Error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @approved_requests_bp.route("/money/api/withdraw-request", methods=["POST"])

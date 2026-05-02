@@ -208,6 +208,10 @@
           <span class="label">ขอเบิกเงินสด</span>
           <span class="desc">กรอกจำนวนเงิน เหตุผล และสถานที่รับเงิน</span>
         </button>
+        <button class="btn-main" onclick="scrollToManualForm()" style="background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 12px 25px rgba(245, 158, 11, 0.35);">
+          <span class="label">ขอเบิกเงินสด (ระบุเอง)</span>
+          <span class="desc">เลือกชนิดแบงค์/เหรียญที่ต้องการเบิก</span>
+        </button>
         <button class="btn-main" onclick="scrollToDepositForm()">
           <span class="label">ฝากเงินสด</span>
           <span class="desc">ฝากเงินทอนหรือยอดขายเข้าตู้เงิน</span>
@@ -325,6 +329,80 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════ -->
+    <!--  ฟอร์มขอเบิกเงินสด (ระบุ Denominations เอง)  -->
+    <!-- ════════════════════════════════════════════ -->
+    <div class="card" id="manual-withdraw-card">
+      <div class="section-title" style="margin-top:0;">ฟอร์มขอเบิกเงินสด (ระบุเอง)</div>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:12px;">
+        เลือกจำนวนแบงค์/เหรียญที่ต้องการเบิก ระบบจะตรวจสอบยอดคงเหลือในเครื่องให้อัตโนมัติ
+      </div>
+      
+      <!-- แสดงสถานะการโหลด inventory -->
+      <div id="inventory-loading" style="text-align:center;padding:20px;color:#6b7280;font-size:13px;">
+        ⏳ กำลังโหลดข้อมูลยอดเงินในเครื่อง...
+      </div>
+      
+      <!-- แสดง inventory -->
+      <div id="inventory-display" class="hidden" style="background:#f0fdf4;border-radius:12px;padding:12px;margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:600;color:#166534;margin-bottom:8px;">
+          💰 ยอดเงินคงเหลือในเครื่อง
+        </div>
+        <div id="inventory-total" style="font-size:20px;font-weight:700;color:#16a34a;margin-bottom:8px;"></div>
+        <div id="inventory-items" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+      </div>
+      
+      <!-- แสดงข้อผิดพลาด inventory -->
+      <div id="inventory-error" class="hidden" style="background:#fef2f2;border-radius:12px;padding:12px;margin-bottom:16px;font-size:12px;color:#b91c1c;"></div>
+      
+      <form id="manual-withdraw-form" novalidate>
+        <!-- Denominations inputs -->
+        <div id="denom-inputs" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+          <!-- จะถูกสร้างโดย JavaScript -->
+        </div>
+        
+        <!-- ยอดรวม -->
+        <div style="background:#f3f4f6;border-radius:10px;padding:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;font-weight:600;color:#4b5563;">ยอดรวมที่ต้องการเบิก</span>
+          <span id="manual-total-display" style="font-size:22px;font-weight:700;color:#111827;">0 บาท</span>
+        </div>
+        
+        <div class="field">
+          <label for="manual-reason">เหตุผลในการเบิก</label>
+          <select id="manual-reason" required onchange="onManualReasonChange()">
+            <option value="">-- เลือกเหตุผล --</option>
+            <option value="ice">ซื้อน้ำแข็ง</option>
+            <option value="fuel">เติมน้ำมัน</option>
+            <option value="other">อื่นๆ</option>
+          </select>
+        </div>
+
+        <div class="field hidden" id="field-manual-license">
+          <label for="manual-license">หมายเลขทะเบียนรถ (เฉพาะกรณีเติมน้ำมัน)</label>
+          <input type="text" id="manual-license" placeholder="เช่น 1กก 1234">
+        </div>
+
+        <div class="field hidden" id="field-manual-reason-other">
+          <label for="manual-reason-other">ระบุเหตุผลเพิ่มเติม</label>
+          <textarea id="manual-reason-other" placeholder="กรณีเลือกเหตุผลอื่นๆ"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="manual-location">สถานที่รับเงิน</label>
+          <select id="manual-location" required onchange="onManualLocationChange()">
+            <option value="">-- เลือกสถานที่ --</option>
+            <option value="คลังห้องเย็น">คลังห้องเย็น</option>
+            <option value="โนนิโกะ">โนนิโกะ</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn-submit" style="background:linear-gradient(135deg,#f59e0b,#d97706);box-shadow:0 10px 22px rgba(217,119,6,0.35);">
+          ส่งคำขอเบิกเงิน (ระบุเอง)
+        </button>
+        <div class="status" id="manual-form-status"></div>
+      </form>
     </div>
   </div>
 
@@ -893,9 +971,294 @@
       initLiff();
       document.getElementById('withdraw-form').addEventListener('submit', submitWithdrawForm);
       document.getElementById('deposit-form').addEventListener('submit', submitDepositForm);
+      document.getElementById('manual-withdraw-form').addEventListener('submit', submitManualWithdrawForm);
       // ป้องกัน error จาก keyboard ไทย/สัญลักษณ์ โดย sanitize ตั้งแต่พิมพ์
       attachNumericSanitizer('amount');
     });
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ฟังก์ชันสำหรับฟอร์มขอเบิกเงินสด (ระบุ Denominations เอง)
+    // ═══════════════════════════════════════════════════════════════
+
+    // ข้อมูล denominations (fv = สตางค์, baht = บาท)
+    const DENOMINATIONS_CONFIG = [
+      { fv: 10000, baht: 100, label: 'แบงค์ 100 บาท', devid: '1' },
+      { fv: 2000,  baht: 20,  label: 'แบงค์ 20 บาท',  devid: '1' },
+      { fv: 1000,  baht: 10,  label: 'เหรียญ 10 บาท', devid: '2' },
+      { fv: 500,   baht: 5,   label: 'เหรียญ 5 บาท',  devid: '2' },
+      { fv: 200,   baht: 2,   label: 'เหรียญ 2 บาท',  devid: '2' },
+      { fv: 100,   baht: 1,   label: 'เหรียญ 1 บาท',  devid: '2' },
+    ];
+
+    let currentInventory = {};  // { fv: available_pieces }
+    let currentBranchForManual = '';
+
+    function scrollToManualForm() {
+      document.getElementById('manual-withdraw-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function onManualReasonChange() {
+      const reason = document.getElementById('manual-reason').value;
+      const fieldLicense = document.getElementById('field-manual-license');
+      const fieldOther = document.getElementById('field-manual-reason-other');
+
+      if (reason === 'fuel') {
+        fieldLicense.classList.remove('hidden');
+      } else {
+        fieldLicense.classList.add('hidden');
+      }
+      if (reason === 'other') {
+        fieldOther.classList.remove('hidden');
+      } else {
+        fieldOther.classList.add('hidden');
+      }
+    }
+
+    function onManualLocationChange() {
+      const location = document.getElementById('manual-location').value;
+      if (location) {
+        loadInventory(location);
+      }
+    }
+
+    async function loadInventory(location) {
+      const loadingEl = document.getElementById('inventory-loading');
+      const displayEl = document.getElementById('inventory-display');
+      const errorEl = document.getElementById('inventory-error');
+      const denomInputs = document.getElementById('denom-inputs');
+
+      loadingEl.classList.remove('hidden');
+      displayEl.classList.add('hidden');
+      errorEl.classList.add('hidden');
+      denomInputs.innerHTML = '';
+
+      // Map location to branch param
+      const branch = location === 'โนนิโกะ' ? 'noniko' : 'klangfrozen';
+      currentBranchForManual = branch;
+
+      try {
+        const res = await fetch(`/money/inventory?branch=${branch}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          throw new Error(data.error || 'ไม่สามารถโหลดข้อมูลได้');
+        }
+
+        currentInventory = data.inventory || {};
+        const denomInfo = data.denominations || [];
+        const totalBaht = data.total_baht || 0;
+
+        // แสดงยอดรวมในเครื่อง
+        document.getElementById('inventory-total').textContent =
+          `💰 รวมทั้งสิ้น ${totalBaht.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
+
+        // แสดง inventory items แบบกระชับ
+        const itemsContainer = document.getElementById('inventory-items');
+        itemsContainer.innerHTML = '';
+        denomInfo.forEach(d => {
+          const badge = document.createElement('span');
+          badge.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;';
+          badge.textContent = `${d.label}: ${d.available} ชิ้น`;
+          itemsContainer.appendChild(badge);
+        });
+
+        // สร้าง input สำหรับแต่ละ denomination
+        renderDenomInputs(currentInventory);
+
+        loadingEl.classList.add('hidden');
+        displayEl.classList.remove('hidden');
+
+      } catch (err) {
+        console.error('Load inventory error:', err);
+        loadingEl.classList.add('hidden');
+        errorEl.classList.remove('hidden');
+        errorEl.textContent = `⚠️ ${err.message || 'ไม่สามารถโหลดข้อมูลยอดเงินในเครื่องได้'}`;
+        // ถ้าโหลดไม่ได้ ก็ให้กรอกได้แต่ไม่จำกัด
+        currentInventory = {};
+        renderDenomInputs({});
+      }
+    }
+
+    function renderDenomInputs(inventory) {
+      const container = document.getElementById('denom-inputs');
+      container.innerHTML = '';
+
+      DENOMINATIONS_CONFIG.forEach(denom => {
+        const maxAvail = inventory[denom.fv] || 999999; // ถ้าไม่มีข้อมูล inventory ให้ 999999
+        const div = document.createElement('div');
+        div.style.cssText = 'background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px;';
+
+        div.innerHTML = `
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">
+            ${denom.label}
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="number" min="0" max="${maxAvail}" value="0"
+                   data-fv="${denom.fv}" data-baht="${denom.baht}"
+                   class="denom-input"
+                   style="flex:1;border-radius:8px;border:1px solid #d1d5db;padding:6px 8px;font-size:14px;text-align:center;"
+                   oninput="calculateManualTotal()">
+            <span style="font-size:11px;color:#6b7280;white-space:nowrap;">ชิ้น</span>
+          </div>
+          ${maxAvail < 999999 ? `<div style="font-size:10px;color:#9ca3af;margin-top:2px;">มีสูงสุด ${maxAvail} ชิ้น</div>` : ''}
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function calculateManualTotal() {
+      const inputs = document.querySelectorAll('.denom-input');
+      let totalBaht = 0;
+      let hasError = false;
+      let errorMsg = '';
+
+      inputs.forEach(input => {
+        const fv = parseInt(input.dataset.fv);
+        const baht = parseInt(input.dataset.baht);
+        const pieces = parseInt(input.value) || 0;
+        const max = parseInt(input.max) || 999999;
+
+        if (pieces < 0) {
+          input.value = 0;
+          return;
+        }
+        if (pieces > max && max < 999999) {
+          hasError = true;
+          errorMsg = `เกินจำนวนที่มีในเครื่อง (สูงสุด ${max} ชิ้น)`;
+          input.style.borderColor = '#ef4444';
+          input.style.background = '#fef2f2';
+        } else {
+          input.style.borderColor = '#d1d5db';
+          input.style.background = '';
+        }
+
+        totalBaht += pieces * baht;
+      });
+
+      document.getElementById('manual-total-display').textContent =
+        `${totalBaht.toLocaleString()} บาท`;
+
+      const statusEl = document.getElementById('manual-form-status');
+      if (hasError) {
+        statusEl.textContent = `⚠️ ${errorMsg}`;
+        statusEl.className = 'status status-err';
+      } else if (totalBaht > 0) {
+        statusEl.textContent = '';
+        statusEl.className = 'status';
+      }
+    }
+
+    async function submitManualWithdrawForm(event) {
+      event.preventDefault();
+      const statusEl = document.getElementById('manual-form-status');
+      statusEl.textContent = '';
+      statusEl.className = 'status';
+
+      if (!currentUserId) {
+        statusEl.textContent = 'ไม่พบข้อมูลผู้ใช้จาก LIFF กรุณาลองเปิดใหม่อีกครั้ง';
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      // รวบรวม denominations
+      const inputs = document.querySelectorAll('.denom-input');
+      const denominations = {};
+      let totalPieces = 0;
+      let totalBaht = 0;
+
+      inputs.forEach(input => {
+        const fv = parseInt(input.dataset.fv);
+        const baht = parseInt(input.dataset.baht);
+        const pieces = parseInt(input.value) || 0;
+        if (pieces > 0) {
+          denominations[fv] = pieces;
+          totalPieces += pieces;
+          totalBaht += pieces * baht;
+        }
+      });
+
+      if (totalPieces === 0) {
+        statusEl.textContent = 'กรุณาเลือกจำนวนแบงค์/เหรียญอย่างน้อย 1 รายการ';
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      if (totalBaht <= 0) {
+        statusEl.textContent = 'ยอดรวมต้องมากกว่า 0 บาท';
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      const reason = document.getElementById('manual-reason').value;
+      const license = document.getElementById('manual-license').value.trim();
+      const reasonOther = document.getElementById('manual-reason-other').value.trim();
+      const location = document.getElementById('manual-location').value;
+
+      if (!reason) {
+        statusEl.textContent = 'กรุณาเลือกเหตุผลในการเบิก';
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (reason === 'fuel' && !license) {
+        statusEl.textContent = 'กรุณากรอกหมายเลขทะเบียนรถ';
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (reason === 'other' && !reasonOther) {
+        statusEl.textContent = 'กรุณาระบุเหตุผลเพิ่มเติม';
+        statusEl.classList.add('status-err');
+        return;
+      }
+      if (!location) {
+        statusEl.textContent = 'กรุณาเลือกสถานที่รับเงิน';
+        statusEl.classList.add('status-err');
+        return;
+      }
+
+      const payload = {
+        user_id: currentUserId,
+        location: location,
+        reason: reason,
+        reason_text: reasonOther || reason,
+        license_plate: license,
+        denominations: denominations
+      };
+
+      try {
+        statusEl.textContent = '⏳ กำลังส่งคำขอ...';
+        statusEl.className = 'status';
+
+        const res = await fetch('/money/submit-manual-withdraw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!data.success) {
+          throw new Error(data.error || 'ไม่สามารถส่งคำขอได้');
+        }
+
+        statusEl.textContent = `✅ ${data.message || 'ส่งคำขอสำเร็จ!'}`;
+        statusEl.classList.add('status-ok');
+
+        // Reset ฟอร์ม
+        document.getElementById('manual-withdraw-form').reset();
+        document.querySelectorAll('.denom-input').forEach(inp => inp.value = '0');
+        calculateManualTotal();
+        onManualReasonChange();
+        document.getElementById('inventory-display').classList.add('hidden');
+
+      } catch (err) {
+        console.error('Manual withdraw error:', err);
+        statusEl.textContent = `❌ ${err.message || 'เกิดข้อผิดพลาด'}`;
+        statusEl.classList.add('status-err');
+      }
+    }
   </script>
 </body>
 </html>

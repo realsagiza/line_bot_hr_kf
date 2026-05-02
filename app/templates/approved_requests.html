@@ -340,10 +340,32 @@
               <span>สถานะปัจจุบัน</span>
               <span class="value">{{ request.status }}</span>
             </div>
+            {% if request.cashout_mode == "manual" and request.denominations %}
+            <div style="margin-top:8px;padding:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+              <div style="font-size:11px;font-weight:600;color:#92400e;margin-bottom:4px;">
+                🎯 ระบุ Denominations เอง
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                {% for fv, pieces in request.denominations.items() %}
+                {% set baht = (fv|int // 100) if fv|int >= 100 else fv %}
+                {% set label = "แบงค์" if fv|int >= 2000 else "เหรียญ" %}
+                <span style="font-size:11px;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;">
+                  {{ label }} {{ baht }} บาท × {{ pieces }} ชิ้น
+                </span>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
             <div class="actions">
+              {% if request.cashout_mode == "manual" %}
+              <form style="flex:1" action="{{ url_for('approved_requests.approve_manual_request', request_id=request.request_id) }}" method="post">
+                <button type="submit" class="btn btn-approve">✅ อนุมัติ (ระบุเอง)</button>
+              </form>
+              {% else %}
               <form style="flex:1" action="{{ url_for('approved_requests.approve_request', request_id=request.request_id) }}" method="post">
                 <button type="submit" class="btn btn-approve">✅ อนุมัติ</button>
               </form>
+              {% endif %}
               <form style="flex:1" action="{{ url_for('approved_requests.reject_request', request_id=request.request_id) }}" method="post">
                 <button type="submit" class="btn btn-reject">❌ ปฏิเสธ</button>
               </form>
