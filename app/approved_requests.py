@@ -801,18 +801,23 @@ def submit_manual_withdraw():
             return jsonify({"success": False, "error": "กรุณาระบุ denominations"}), 400
         
         # แปลง keys เป็น int และกรองเอาเฉพาะค่าที่รู้จัก
-        denominations = {}
+        # เก็บทั้งแบบ int keys (สำหรับส่ง API) และ string keys (สำหรับ MongoDB)
+        denominations_int = {}  # {int: int} สำหรับส่ง /cashout/request
+        denominations_str = {}  # {str: int} สำหรับเก็บใน MongoDB
         for k, v in raw_denominations.items():
             try:
                 fv = int(k)
                 pieces = int(v)
                 if pieces > 0 and fv in FV_TO_BAHT:
-                    denominations[fv] = pieces
+                    denominations_int[fv] = pieces
+                    denominations_str[str(fv)] = pieces
             except (ValueError, TypeError):
                 continue
         
-        if not denominations:
+        if not denominations_int:
             return jsonify({"success": False, "error": "กรุณาระบุจำนวนเงินอย่างน้อย 1 รายการ"}), 400
+        
+        denominations = denominations_int  # ใช้ int keys สำหรับ logic ภายใน
         
         # ── ตรวจสอบยอดในเครื่อง ──
         branch_id = "NONIKO" if "โนนิโกะ" in location else "Klangfrozen"
@@ -861,6 +866,12 @@ def submit_manual_withdraw():
         now_bkk, now_utc = now_bangkok_and_utc()
         date_bkk = now_bkk.date().isoformat()
         
+        # แปลง denominations_baht keys เป็น string สำหรับ MongoDB
+        denom_baht_str = {}
+        for k, v in denominations.items():
+            baht_key = str(FV_TO_BAHT.get(k, k // 100))
+            denom_baht_str[baht_key] = v
+        
         doc = {
             "request_id": request_id,
             "user_id": user_id,
@@ -873,8 +884,8 @@ def submit_manual_withdraw():
             "branch_id": branch_id,
             "status": "pending",
             "cashout_mode": "manual",  # ← ระบุว่าเป็นแบบ manual
-            "denominations": denominations,  # ← เก็บ denominations ที่เลือก
-            "denominations_baht": {str(FV_TO_BAHT.get(k, k//100)): v for k, v in denominations.items()},
+            "denominations": denominations_str,  # ← เก็บ denominations (string keys)
+            "denominations_baht": denom_baht_str,  # ← แปลงเป็นบาท (string keys)
             "created_at_bkk": now_bkk.isoformat(),
             "created_at_utc": now_utc.isoformat(),
             "created_date_bkk": date_bkk,
@@ -933,7 +944,16 @@ def approve_manual_request(request_id):
     reason = request_data.get("reason", "")
     denominations = request_data.get("denominations", {})
     
-    if not denominations:
+    # แปลง denominations keys จาก string → int ก่อนส่ง /cashout/request
+    # เพราะ MongoDB เก็บเป็น string keys แต่ REST_API_CI ต้องการ int keys (fv ในหน่วยสตางค์)
+    denominations_for_api = {}
+    for k, v in denominations.items():
+        try:
+            denominations_for_api[int(k)] = int(v)
+        except (ValueError, TypeError):
+            continue
+    
+    if not denominations_for_api:
         return jsonify({"status": "error", "message": "ไม่พบข้อมูล denominations ในคำขอ"}), 400
     
     # ── ตั้งสถานะ awaiting_machine ──
@@ -969,7 +989,7 @@ def approve_manual_request(request_id):
         # ✅ ข้าม /cashout/plan → ส่ง /cashout/request โดยตรง
         request_url = f"{base}/cashout/request"
         request_payload = {
-            "denominations": denominations
+            "denominations": denominations_for_api  # ส่ง int keys ไป API
         }
         
         logger.info(f"📤 [MANUAL_CASHOUT] ส่ง /cashout/request (manual) ไปยัง {request_url}: {request_payload}")
