@@ -1146,11 +1146,10 @@ def api_withdraw_direct():
     if total_amount <= 0:
         return jsonify({"status": "error", "message": "ยอดรวมต้องมากกว่า 0 บาท"}), 400
 
-    # ── ⛔ ตรวจสอบวงเงินสะสมวันนี้ ต้องไม่เกิน 1,000 บาท/วัน/คน ──
+    # ── ⛔ ตรวจสอบวงเงินสะสมวันนี้ รวมทุกคน ไม่เกิน 1,000 บาท/วัน ──
     today_bkk = now_bangkok().date().isoformat()
     pipeline = [
         {"$match": {
-            "user_id": user_id,
             "is_direct_withdraw": True,
             "created_date_bkk": today_bkk,
             "status": "approved"
@@ -1161,14 +1160,14 @@ def api_withdraw_direct():
     total_today = aggregation[0]["total"] if aggregation else 0
     remaining = 1000 - total_today
     if total_amount > remaining:
-        logger.warning(f"⛔ [WITHDRAW_DIRECT] {display_name} ({user_id}) เบิกเกินวงเงินวันนี้: ขอ {total_amount:.0f} บาท, ใช้ไปแล้ว {total_today:.0f} บาท, คงเหลือ {remaining:.0f} บาท")
+        logger.warning(f"⛔ [WITHDRAW_DIRECT] วงเงินวันนี้รวมทุกคน: ใช้ไปแล้ว {total_today:.0f} บาท, ขอ {total_amount:.0f}, คงเหลือ {remaining:.0f}")
         return jsonify({
             "status": "error",
             "message": (
                 f"⚠️ เบิกเงินทอนไม่สำเร็จ\n"
-                f"คุณ {display_name} เบิกเงินทอนวันนี้ไปแล้ว {total_today:.0f} บาท\n"
-                f"คงเหลือวงเงินวันนี้ {remaining:.0f} บาท\n"
-                f"(จำกัดวงเงินไม่เกิน 1,000 บาท/วัน/คน เพื่อความปลอดภัย)"
+                f"วันนี้เบิกเงินทอนรวมทุกคนไปแล้ว {total_today:.0f} บาท\n"
+                f"คงเหลือวงเงินวันนี้เพียง {remaining:.0f} บาท\n"
+                f"(จำกัดวงเงินรวมทุกคนไม่เกิน 1,000 บาท/วัน เพื่อความปลอดภัย)"
             ),
             "total_today": total_today,
             "daily_limit": 1000,
