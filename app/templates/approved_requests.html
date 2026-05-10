@@ -257,6 +257,9 @@
       Promise.race([initPromise, timeoutPromise])
         .then(profile => {
           const userId = profile && profile.userId ? profile.userId : '';
+          const displayName = (profile && profile.displayName) ? profile.displayName : userId;
+          // เก็บชื่อผู้อนุมัติเพื่อส่งไปกับฟอร์ม
+          window.__approverName = displayName;
           // ตรวจสอบว่า userId นี้อยู่ในรายการอนุญาตหรือไม่
           if (!allowedUserIds.includes(userId)) {
             showError(`
@@ -273,6 +276,14 @@
             `);
           } else {
             showContent();
+            // Inject approver_name hidden input into all forms
+            document.querySelectorAll('form[action*="/money/approve/"], form[action*="/money/reject/"]').forEach(form => {
+              const input = document.createElement('input');
+              input.type = 'hidden';
+              input.name = 'approver_name';
+              input.value = window.__approverName || 'approver_ui';
+              form.appendChild(input);
+            });
           }
         })
         .catch(err => {
@@ -331,6 +342,10 @@
             <div class="item-row">
               <span>จำนวนเงิน</span>
               <span class="value">{{ request.amount }} บาท</span>
+            </div>
+            <div class="item-row">
+              <span>ผู้ขอเบิก</span>
+              <span class="value">{{ request.requester_name if request.requester_name is defined else request.user_id }}</span>
             </div>
             <div class="item-row">
               <span>เหตุผล</span>

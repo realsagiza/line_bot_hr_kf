@@ -170,6 +170,9 @@ def approve_request(request_id):
 
     logger.info(f"📢 กำลังอนุมัติคำขอ: {request_id}")
 
+    # ✅ รับชื่อผู้อนุมัติจากฟอร์ม
+    approver_name = request.form.get("approver_name", "").strip() or "approver_ui"
+
     # ✅ ค้นหาคำขอจากฐานข้อมูล
     request_data = requests_collection.find_one({"request_id": request_id})
 
@@ -210,7 +213,7 @@ def approve_request(request_id):
                         "at_bkk": now_bkk.isoformat(),
                         "at_utc": now_utc.isoformat(),
                         "date_bkk": date_bkk,
-                        "by": "approver_ui",
+                        "by": approver_name,
                     }
                 },
             },
@@ -259,7 +262,7 @@ def approve_request(request_id):
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
                                 "date_bkk": now_bkk.date().isoformat(),
-                                "by": "approver_ui",
+                                "by": approver_name,
                             }
                         },
                     },
@@ -286,7 +289,7 @@ def approve_request(request_id):
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
                                 "date_bkk": now_bkk.date().isoformat(),
-                                "by": "approver_ui",
+                                "by": approver_name,
                             }
                         },
                     },
@@ -326,7 +329,7 @@ def approve_request(request_id):
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
                                 "date_bkk": now_bkk.date().isoformat(),
-                                "by": "approver_ui",
+                                "by": approver_name,
                             }
                         },
                     },
@@ -356,7 +359,7 @@ def approve_request(request_id):
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": date_bkk,
-                            "by": "approver_ui",
+                            "by": approver_name,
                         }
                     },
                 },
@@ -385,7 +388,7 @@ def approve_request(request_id):
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": now_bkk.date().isoformat(),
-                            "by": "approver_ui",
+                            "by": approver_name,
                         }
                     },
                 },
@@ -409,7 +412,7 @@ def approve_request(request_id):
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": now_bkk.date().isoformat(),
-                            "by": "approver_ui",
+                            "by": approver_name,
                         }
                     },
                 },
@@ -453,7 +456,7 @@ def approve_request(request_id):
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
                                 "date_bkk": now_bkk.date().isoformat(),
-                                "by": "approver_ui",
+                                "by": approver_name,
                             }
                         },
                     },
@@ -480,7 +483,7 @@ def approve_request(request_id):
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
                                 "date_bkk": now_bkk.date().isoformat(),
-                                "by": "approver_ui",
+                                "by": approver_name,
                             }
                         },
                     },
@@ -520,7 +523,7 @@ def approve_request(request_id):
                                 "at_bkk": now_bkk.isoformat(),
                                 "at_utc": now_utc.isoformat(),
                                 "date_bkk": now_bkk.date().isoformat(),
-                                "by": "approver_ui",
+                                "by": approver_name,
                             }
                         },
                     },
@@ -550,7 +553,7 @@ def approve_request(request_id):
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": date_bkk,
-                            "by": "approver_ui",
+                            "by": approver_name,
                         }
                     },
                 },
@@ -579,7 +582,7 @@ def approve_request(request_id):
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": now_bkk.date().isoformat(),
-                            "by": "approver_ui",
+                            "by": approver_name,
                         }
                     },
                 },
@@ -603,7 +606,7 @@ def approve_request(request_id):
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": now_bkk.date().isoformat(),
-                            "by": "approver_ui",
+                            "by": approver_name,
                         }
                     },
                 },
@@ -613,6 +616,7 @@ def approve_request(request_id):
 @approved_requests_bp.route("/money/reject/<request_id>", methods=["POST"])
 def reject_request(request_id):
     """ ปฏิเสธคำขอและอัปเดตสถานะใน MongoDB """
+    approver_name = request.form.get("approver_name", "").strip() or "approver_ui"
     now_bkk, now_utc = now_bangkok_and_utc()
     date_bkk = now_bkk.date().isoformat()
 
@@ -630,7 +634,7 @@ def reject_request(request_id):
                     "at_bkk": now_bkk.isoformat(),
                     "at_utc": now_utc.isoformat(),
                     "date_bkk": date_bkk,
-                    "by": "approver_ui",
+                    "by": approver_name,
                 }
             },
         },
@@ -786,6 +790,7 @@ def submit_manual_withdraw():
             return jsonify({"success": False, "error": "กรุณาส่งข้อมูลในรูปแบบ JSON"}), 400
         
         user_id = data.get("user_id", "").strip()
+        display_name = data.get("display_name", "").strip() or user_id
         location = data.get("location", "").strip()
         reason_code = data.get("reason", "other").strip()
         reason_text = data.get("reason_text", "").strip()
@@ -884,6 +889,7 @@ def submit_manual_withdraw():
             "branch_id": branch_id,
             "status": "pending",
             "cashout_mode": "manual",  # ← ระบุว่าเป็นแบบ manual
+            "requester_name": display_name,  # ✅ ชื่อผู้ขอเบิก
             "denominations": denominations_str,  # ← เก็บ denominations (string keys)
             "denominations_baht": denom_baht_str,  # ← แปลงเป็นบาท (string keys)
             "created_at_bkk": now_bkk.isoformat(),
@@ -898,7 +904,8 @@ def submit_manual_withdraw():
                     "at_bkk": now_bkk.isoformat(),
                     "at_utc": now_utc.isoformat(),
                     "date_bkk": date_bkk,
-                    "by": user_id,
+                    "by": display_name,
+                    "by_user_id": user_id,
                 }
             ],
         }
@@ -926,6 +933,8 @@ def approve_manual_request(request_id):
     ข้าม /cashout/plan → ส่ง /cashout/request โดยตรงด้วย denominations ที่เลือก
     """
     logger.info(f"📢 กำลังอนุมัติคำขอแบบ manual: {request_id}")
+    
+    approver_name = request.form.get("approver_name", "").strip() or "approver_ui"
     
     request_data = requests_collection.find_one({"request_id": request_id})
     if not request_data:
@@ -974,7 +983,7 @@ def approve_manual_request(request_id):
                     "at_bkk": now_bkk.isoformat(),
                     "at_utc": now_utc.isoformat(),
                     "date_bkk": date_bkk,
-                    "by": "approver_ui",
+                    "by": approver_name,
                 }
             },
         },
@@ -1017,7 +1026,7 @@ def approve_manual_request(request_id):
                             "at_bkk": now_bkk.isoformat(),
                             "at_utc": now_utc.isoformat(),
                             "date_bkk": now_bkk.date().isoformat(),
-                            "by": "approver_ui",
+                            "by": approver_name,
                         }
                     },
                 },
@@ -1043,7 +1052,7 @@ def approve_manual_request(request_id):
                         "at_bkk": now_bkk.isoformat(),
                         "at_utc": now_utc.isoformat(),
                         "date_bkk": date_bkk,
-                        "by": "approver_ui",
+                        "by": approver_name,
                     }
                 },
             },
@@ -1073,7 +1082,7 @@ def approve_manual_request(request_id):
                         "at_bkk": now_bkk.isoformat(),
                         "at_utc": now_utc.isoformat(),
                         "date_bkk": now_bkk.date().isoformat(),
-                        "by": "approver_ui",
+                        "by": approver_name,
                     }
                 },
             },
@@ -1082,6 +1091,194 @@ def approve_manual_request(request_id):
     except Exception as e:
         logger.error(f"❌ [MANUAL_CASHOUT] Error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@approved_requests_bp.route("/money/api/withdraw-direct", methods=["POST"])
+def api_withdraw_direct():
+    """
+    API สำหรับเบิกเงินทอนโดยตรง (ไม่ต้องรออนุมัติ)
+    รับ JSON:
+    {
+      "user_id": "LINE user id",
+      "location": "คลังห้องเย็น" หรือ "โนนิโกะ",
+      "denominations": { "10000": 1, "2000": 3, ... }
+    }
+    
+    Flow:
+    1. เช็คเหตุผลต้องเป็น "change" (เงินทอน) เท่านั้น
+    2. ยิง /cashout/request โดยตรง (ข้าม /cashout/plan, ขั้นตอนอนุมัติ)
+    3. บันทึก request ใน MongoDB สถานะ approved ทันที
+    4. บันทึก transaction ใน transactions_collection
+    """
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
+
+    user_id = data.get("user_id", "").strip()
+    display_name = data.get("display_name", "").strip() or user_id
+    location = data.get("location", "").strip()
+    raw_denominations = data.get("denominations", {})
+
+    if not user_id:
+        return jsonify({"status": "error", "message": "ไม่พบข้อมูลผู้ใช้"}), 400
+    if not location:
+        return jsonify({"status": "error", "message": "กรุณาเลือกสถานที่รับเงิน"}), 400
+    if not raw_denominations or not isinstance(raw_denominations, dict):
+        return jsonify({"status": "error", "message": "กรุณาระบุ denominations"}), 400
+
+    # แปลง denominations keys เป็น int
+    denominations_int = {}
+    for k, v in raw_denominations.items():
+        try:
+            fv = int(k)
+            pieces = int(v)
+            if pieces > 0 and fv in FV_TO_BAHT:
+                denominations_int[fv] = pieces
+        except (ValueError, TypeError):
+            continue
+
+    if not denominations_int:
+        return jsonify({"status": "error", "message": "กรุณาระบุจำนวนเงินอย่างน้อย 1 รายการ"}), 400
+
+    # คำนวณยอดรวม
+    total_amount = _denominations_to_baht_total(denominations_int)
+    if total_amount <= 0:
+        return jsonify({"status": "error", "message": "ยอดรวมต้องมากกว่า 0 บาท"}), 400
+
+    # ── ⛔ ตรวจสอบวงเงินสะสมวันนี้ ต้องไม่เกิน 1,000 บาท/วัน/คน ──
+    today_bkk = now_bangkok().date().isoformat()
+    pipeline = [
+        {"$match": {
+            "user_id": user_id,
+            "is_direct_withdraw": True,
+            "created_date_bkk": today_bkk,
+            "status": "approved"
+        }},
+        {"$group": {"_id": None, "total": {"$sum": "$amount_baht"}}}
+    ]
+    aggregation = list(requests_collection.aggregate(pipeline))
+    total_today = aggregation[0]["total"] if aggregation else 0
+    remaining = 1000 - total_today
+    if total_amount > remaining:
+        logger.warning(f"⛔ [WITHDRAW_DIRECT] {display_name} ({user_id}) เบิกเกินวงเงินวันนี้: ขอ {total_amount:.0f} บาท, ใช้ไปแล้ว {total_today:.0f} บาท, คงเหลือ {remaining:.0f} บาท")
+        return jsonify({
+            "status": "error",
+            "message": (
+                f"⚠️ เบิกเงินทอนไม่สำเร็จ\n"
+                f"คุณ {display_name} เบิกเงินทอนวันนี้ไปแล้ว {total_today:.0f} บาท\n"
+                f"คงเหลือวงเงินวันนี้ {remaining:.0f} บาท\n"
+                f"(จำกัดวงเงินไม่เกิน 1,000 บาท/วัน/คน เพื่อความปลอดภัย)"
+            ),
+            "total_today": total_today,
+            "daily_limit": 1000,
+            "remaining": remaining,
+        }), 400
+
+    # กำหนดสาขา
+    if "โนนิโกะ" in location:
+        branch_id = "NONIKO"
+    else:
+        branch_id = "Klangfrozen"
+    base = get_rest_api_ci_base_for_branch(branch_id)
+
+    # สร้าง request_id
+    request_id = generate_request_id()
+    headers, meta = build_correlation_headers(sale_id=request_id)
+
+    # ── ยิง /cashout/request โดยตรง (ข้าม /cashout/plan, ข้ามอนุมัติ) ──
+    try:
+        request_url = f"{base}/cashout/request"
+        request_payload = {"denominations": denominations_int}
+
+        logger.info(f"📤 [WITHDRAW_DIRECT] เงินทอน - ส่ง /cashout/request ไปยัง {request_url}: {request_payload}")
+
+        resp = requests.post(request_url, json=request_payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        resp_data = resp.json()
+
+        if not resp_data.get("success"):
+            error_msg = resp_data.get("error", "Unknown error")
+            logger.error(f"❌ [WITHDRAW_DIRECT] /cashout/request failed: {error_msg}")
+            return jsonify({"status": "error", "message": f"เครื่องไม่สามารถจ่ายเงินได้: {error_msg}"}), 500
+
+        logger.info(f"✅ [WITHDRAW_DIRECT] /cashout/request สำเร็จ: {resp_data}")
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ [WITHDRAW_DIRECT] Request Exception: {str(e)}")
+        return jsonify({"status": "error", "message": f"ไม่สามารถเชื่อมต่อเครื่องได้: {str(e)}"}), 502
+    except Exception as e:
+        logger.error(f"❌ [WITHDRAW_DIRECT] Error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    # ── บันทึกคำขอใน MongoDB สถานะ approved ทันที ──
+    now_bkk, now_utc = now_bangkok_and_utc()
+    date_bkk = now_bkk.date().isoformat()
+
+    # แปลง denominations เป็น string keys สำหรับ MongoDB
+    denominations_str = {str(k): v for k, v in denominations_int.items()}
+
+    # แปลงเป็นบาท
+    denom_baht_str = {}
+    for k, v in denominations_int.items():
+        baht_key = str(FV_TO_BAHT.get(k, k // 100))
+        denom_baht_str[baht_key] = v
+
+    doc = {
+        "request_id": request_id,
+        "user_id": user_id,
+        "amount": str(total_amount),
+        "amount_baht": total_amount,
+        "reason": "เงินทอน",
+        "reason_code": "change",
+        "license_plate": None,
+        "location": location,
+        "branch_id": branch_id,
+        "status": "approved",
+        "cashout_mode": "manual",
+        "is_direct_withdraw": True,  # ✅ flag ระบุว่าเป็นการเบิกตรงไม่ต้องอนุมัติ
+        "requester_name": display_name,  # ✅ ชื่อผู้ขอเบิก
+        "denominations": denominations_str,
+        "denominations_baht": denom_baht_str,
+        "cashout_request_response": resp_data,
+        "created_at_bkk": now_bkk.isoformat(),
+        "created_at_utc": now_utc.isoformat(),
+        "created_date_bkk": date_bkk,
+        "updated_at_bkk": now_bkk.isoformat(),
+        "updated_at_utc": now_utc.isoformat(),
+        "channel": "liff_direct_withdraw",
+        "status_history": [
+            {
+                "status": "approved",
+                "at_bkk": now_bkk.isoformat(),
+                "at_utc": now_utc.isoformat(),
+                "date_bkk": date_bkk,
+                "by": display_name,
+                "by_user_id": user_id,
+            }
+        ],
+    }
+
+    try:
+        requests_collection.insert_one(doc)
+        logger.info(f"✅ [WITHDRAW_DIRECT] บันทึกคำขอเบิกเงินทอน {request_id} สำเร็จ: {total_amount} บาท")
+    except Exception as e:
+        logger.error(f"❌ [WITHDRAW_DIRECT] ไม่สามารถบันทึกคำขอได้: {str(e)}")
+        # API ไปที่เครื่องสำเร็จแล้ว แต่บันทึก DB ไม่ได้ — แจ้งเตือนแต่ให้ผ่าน
+        # ไม่ return error เพราะเงินออกจากเครื่องไปแล้ว
+
+    # ── บันทึก transaction ──
+    try:
+        save_expense_to_transactions(doc, location, total_amount, "เงินทอน", date_bkk, now_bkk, now_utc)
+    except Exception as e:
+        logger.error(f"❌ [WITHDRAW_DIRECT] ไม่สามารถบันทึก transaction: {str(e)}")
+
+    return jsonify({
+        "status": "ok",
+        "request_id": request_id,
+        "amount_baht": total_amount,
+        "message": f"เบิกเงินทอน {total_amount:.0f} บาทสำเร็จ",
+    }), 200
 
 
 @approved_requests_bp.route("/money/api/withdraw-request", methods=["POST"])
@@ -1104,6 +1301,7 @@ def api_withdraw_request():
         return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
 
     user_id = data.get("userId")
+    display_name = data.get("displayName", "").strip() or user_id
     amount_raw = data.get("amount")
     reason_code = data.get("reason")
     reason_other = (data.get("reasonOther") or "").strip()
@@ -1154,6 +1352,7 @@ def api_withdraw_request():
     request_data = {
         "request_id": request_id,
         "user_id": user_id,
+        "requester_name": display_name,
         "amount": str(amount_int),
         "reason": reason,
         "license_plate": license_plate if license_plate else None,
@@ -1168,7 +1367,8 @@ def api_withdraw_request():
                 "at_bkk": now_bkk.isoformat(),
                 "at_utc": now_utc.isoformat(),
                 "date_bkk": date_bkk,
-                "by": user_id,
+                "by": display_name,
+                "by_user_id": user_id,
             }
         ],
         "channel": "liff",  # ระบุว่ามาจาก LIFF
@@ -1213,6 +1413,7 @@ def api_deposit_request():
         return jsonify({"status": "error", "message": "รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)"}), 400
 
     user_id = data.get("userId")
+    display_name = data.get("displayName", "").strip() or user_id
     reason_code = data.get("reason")
     reason_other = (data.get("reasonOther") or "").strip()
     location_text = (data.get("location") or "").strip()
@@ -1360,6 +1561,7 @@ def api_replenishment_end():
     session_id = data.get("session_id")
     seq_no = data.get("seq_no", "1")
     user_id = data.get("user_id")
+    display_name = data.get("display_name", "").strip() or user_id
     reason_code = data.get("reason_code")
     reason_other = data.get("reason_other", "")
     location_text = data.get("location")
@@ -1433,6 +1635,7 @@ def api_replenishment_end():
         deposit_doc = {
             "deposit_request_id": deposit_id,
             "user_id": user_id,
+            "requester_name": display_name,
             "amount": float(amount) if amount else None,
             "reason_code": reason_code,
             "reason": reason,
@@ -1454,7 +1657,8 @@ def api_replenishment_end():
                     "at_bkk": now_bkk.isoformat(),
                     "at_utc": now_utc.isoformat(),
                     "date_bkk": date_bkk,
-                    "by": user_id,
+                    "by": display_name,
+                    "by_user_id": user_id,
                 }
             ],
         }

@@ -339,6 +339,13 @@
       <div style="font-size:12px;color:#6b7280;margin-bottom:12px;">
         เลือกจำนวนแบงค์/เหรียญที่ต้องการเบิก ระบบจะตรวจสอบยอดคงเหลือในเครื่องให้อัตโนมัติ
       </div>
+      <!-- แถบแจ้งเตือน: เงินทอนเบิกได้ทันที -->
+      <div id="change-notice" class="hidden" style="background:linear-gradient(135deg,#dcfce7,#bbf7d0);border-radius:12px;padding:12px 14px;margin-bottom:16px;border:1px solid #86efac;">
+        <div style="font-size:13px;font-weight:700;color:#166534;">💰 เบิกเงินทอนได้ทันที!</div>
+        <div style="font-size:12px;color:#15803d;margin-top:4px;">
+          เลือกเหตุผล "เงินทอน" ระบบจะเบิกเงินจากเครื่องให้ทันที โดยไม่ต้องรอหัวหน้าอนุมัติ
+        </div>
+      </div>
       
       <!-- แสดงสถานะการโหลด inventory -->
       <div id="inventory-loading" style="text-align:center;padding:20px;color:#6b7280;font-size:13px;">
@@ -373,6 +380,7 @@
           <label for="manual-reason">เหตุผลในการเบิก</label>
           <select id="manual-reason" required onchange="onManualReasonChange()">
             <option value="">-- เลือกเหตุผล --</option>
+            <option value="change">💰 เงินทอน (เบิกได้ทันที ไม่ต้องรออนุมัติ)</option>
             <option value="ice">ซื้อน้ำแข็ง</option>
             <option value="fuel">เติมน้ำมัน</option>
             <option value="other">อื่นๆ</option>
@@ -448,6 +456,7 @@
     ];
 
     let currentUserId = null;
+    let currentDisplayName = '';
 
     function onReasonChange() {
       const reason = document.getElementById('reason').value;
@@ -493,6 +502,7 @@
         await liff.init({ liffId: "2005595780-lYJx1JyJ" });
         const profile = await liff.getProfile();
         currentUserId = profile.userId;
+        currentDisplayName = profile.displayName || profile.userId;
 
         userPill.textContent = profile.displayName || profile.userId;
         userPill.title = profile.userId;
@@ -553,6 +563,7 @@
 
       const payload = {
         userId: currentUserId,
+        displayName: currentDisplayName,
         amount: amount,
         reason: reason,
         reasonOther: reasonOther,
@@ -648,6 +659,7 @@
 
       const payload = {
         userId: currentUserId,
+        displayName: currentDisplayName,
         reason: reason,
         reasonOther: reasonOther,
         location: location
@@ -840,6 +852,7 @@
             session_id: currentSessionId,
             seq_no: currentSeqNo,
             user_id: currentDepositUserId,
+            display_name: currentDisplayName,
             reason_code: currentDepositReasonCode,
             reason_other: currentDepositReasonOther,
             location: currentDepositLocation,
@@ -1001,6 +1014,7 @@
       const reason = document.getElementById('manual-reason').value;
       const fieldLicense = document.getElementById('field-manual-license');
       const fieldOther = document.getElementById('field-manual-reason-other');
+      const changeNotice = document.getElementById('change-notice');
 
       if (reason === 'fuel') {
         fieldLicense.classList.remove('hidden');
@@ -1011,6 +1025,22 @@
         fieldOther.classList.remove('hidden');
       } else {
         fieldOther.classList.add('hidden');
+      }
+
+      // แสดง/ซ่อน notice เมื่อเลือก เงินทอน
+      const submitBtn = document.querySelector('#manual-withdraw-form .btn-submit');
+      if (reason === 'change') {
+        changeNotice.classList.remove('hidden');
+        // เปลี่ยนสีปุ่มเป็นสีเขียวสด และเปลี่ยนข้อความ
+        submitBtn.style.background = 'linear-gradient(135deg,#22c55e,#16a34a)';
+        submitBtn.style.boxShadow = '0 10px 22px rgba(22,163,74,0.35)';
+        submitBtn.innerHTML = '💸 เบิกเงินทอนทันที (ไม่ต้องรออนุมัติ)';
+      } else {
+        changeNotice.classList.add('hidden');
+        // กลับเป็นสีส้มเดิม
+        submitBtn.style.background = 'linear-gradient(135deg,#f59e0b,#d97706)';
+        submitBtn.style.boxShadow = '0 10px 22px rgba(217,119,6,0.35)';
+        submitBtn.innerHTML = 'ส่งคำขอเบิกเงิน (ระบุเอง)';
       }
     }
 
@@ -1218,8 +1248,16 @@
         return;
       }
 
+      // ── ถ้าเป็นเหตุผล "เงินทอน" → เบิกโดยตรง ไม่ต้องรออนุมัติ ──
+      if (reason === 'change') {
+        await submitDirectChangeWithdraw(statusEl, denominations, totalBaht, location);
+        return;
+      }
+
+      // ── กรณีอื่นๆ (ice, fuel, other) → ส่งคำขอปกติ รออนุมัติ ──
       const payload = {
         user_id: currentUserId,
+        display_name: currentDisplayName,
         location: location,
         reason: reason,
         reason_text: reasonOther || reason,
@@ -1247,17 +1285,74 @@
         statusEl.classList.add('status-ok');
 
         // Reset ฟอร์ม
-        document.getElementById('manual-withdraw-form').reset();
-        document.querySelectorAll('.denom-input').forEach(inp => inp.value = '0');
-        calculateManualTotal();
-        onManualReasonChange();
-        document.getElementById('inventory-display').classList.add('hidden');
+        resetManualForm();
 
       } catch (err) {
         console.error('Manual withdraw error:', err);
         statusEl.textContent = `❌ ${err.message || 'เกิดข้อผิดพลาด'}`;
         statusEl.classList.add('status-err');
       }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ฟังก์ชันเบิกเงินทอนโดยตรง (ไม่ต้องรออนุมัติ)
+    // ═══════════════════════════════════════════════════════════════
+    async function submitDirectChangeWithdraw(statusEl, denominations, totalBaht, location) {
+      statusEl.textContent = '⏳ กำลังเบิกเงินทอนจากเครื่อง...';
+      statusEl.className = 'status';
+
+      const payload = {
+        user_id: currentUserId,
+        display_name: currentDisplayName,
+        location: location,
+        denominations: denominations
+      };
+
+      try {
+        const res = await fetch('/money/api/withdraw-direct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || data.status !== 'ok') {
+          // ถ้าเป็น error วงเงินเกิน ให้แสดงข้อความแจ้ง
+          if (data.remaining !== undefined) {
+            statusEl.textContent = `⛔ ${data.message || 'เบิกเงินทอนไม่สำเร็จ'}`;
+          } else {
+            throw new Error(data.message || data.error || 'ไม่สามารถเบิกเงินทอนได้');
+          }
+          statusEl.classList.add('status-err');
+          return;
+        }
+
+        statusEl.textContent = `✅ เบิกเงินทอนสำเร็จ! จำนวน ${totalBaht.toLocaleString()} บาท (Request: ${data.request_id})`;
+        statusEl.classList.add('status-ok');
+
+        // Reset ฟอร์ม
+        resetManualForm();
+
+      } catch (err) {
+        console.error('Direct change withdraw error:', err);
+        statusEl.textContent = `❌ ${err.message || 'เกิดข้อผิดพลาดในการเบิกเงินทอน'}`;
+        statusEl.classList.add('status-err');
+      }
+    }
+
+    function resetManualForm() {
+      document.getElementById('manual-withdraw-form').reset();
+      document.querySelectorAll('.denom-input').forEach(inp => inp.value = '0');
+      calculateManualTotal();
+      onManualReasonChange();
+      document.getElementById('inventory-display').classList.add('hidden');
+      document.getElementById('change-notice').classList.add('hidden');
+      // รีเซ็ตปุ่มกลับเป็นสถานะเดิม
+      const submitBtn = document.querySelector('#manual-withdraw-form .btn-submit');
+      submitBtn.style.background = 'linear-gradient(135deg,#f59e0b,#d97706)';
+      submitBtn.style.boxShadow = '0 10px 22px rgba(217,119,6,0.35)';
+      submitBtn.innerHTML = 'ส่งคำขอเบิกเงิน (ระบุเอง)';
     }
   </script>
 </body>

@@ -33,11 +33,27 @@ def enrich_request_status_records(
         r["created_at_bkk_display"] = format_bkk_datetime_display(
             r.get("created_at_bkk") or r.get("created_date_bkk")
         )
+        # ดึงชื่อผู้อนุมัติจาก status_history ล่าสุดที่ status=approved
+        if r.get("status_history"):
+            for sh in reversed(r["status_history"]):
+                if sh.get("status") == "approved":
+                    r["approved_by"] = sh.get("by", "")
+                    break
+        if not r.get("approved_by"):
+            r["approved_by"] = ""
 
     for r in rejected_out:
         r["created_at_bkk_display"] = format_bkk_datetime_display(
             r.get("created_at_bkk") or r.get("created_date_bkk")
         )
+        # ดึงชื่อผู้อนุมัติจาก status_history ล่าสุดที่ status=rejected
+        if r.get("status_history"):
+            for sh in reversed(r["status_history"]):
+                if sh.get("status") == "rejected":
+                    r["rejected_by"] = sh.get("by", "")
+                    break
+        if not r.get("rejected_by"):
+            r["rejected_by"] = ""
 
     for dr in deposit_req_out:
         dr["created_at_bkk_display"] = format_bkk_datetime_display(

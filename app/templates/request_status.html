@@ -259,6 +259,10 @@
                         <span class="value">{{ request.amount }} บาท</span>
                     </div>
                     <div class="item-row">
+                        <span>ผู้ขอเบิก</span>
+                        <span class="value">{{ request.requester_name if request.requester_name is defined else request.user_id }}</span>
+                    </div>
+                    <div class="item-row">
                         <span>เหตุผล</span>
                         <span class="value">{{ request.reason }}</span>
                     </div>
@@ -268,10 +272,17 @@
                     </div>
                     <div class="item-row">
                         <span>วัน-เวลาที่ขอ (เวลาไทย)</span>
-                        <span class="value">
-                            {{ request.created_at_bkk_display if request.created_at_bkk_display is defined else (request.created_date_bkk if request.created_date_bkk is defined else '') }}
-                        </span>
+                        <span class="value">{{ request.created_at_bkk_display if request.created_at_bkk_display is defined else (request.created_date_bkk if request.created_date_bkk is defined else '') }}</span>
                     </div>
+                    <div class="item-row">
+                        <span>ผู้อนุมัติ</span>
+                        <span class="value">{{ request.approved_by if request.approved_by is defined and request.approved_by else '-' }}</span>
+                    </div>
+                    {% if request.is_direct_withdraw %}
+                    <div style="margin-top:4px;">
+                        <span style="font-size:10px;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;">⚡ เบิกตรง (เงินทอน)</span>
+                    </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -298,6 +309,10 @@
                         <span class="value">
                             {% if dr.amount %}{{ dr.amount }} บาท{% else %}-{% endif %}
                         </span>
+                    </div>
+                    <div class="item-row">
+                        <span>ผู้ฝาก</span>
+                        <span class="value">{{ dr.requester_name if dr.requester_name is defined else dr.user_id }}</span>
                     </div>
                     <div class="item-row">
                         <span>เหตุผล</span>
@@ -338,6 +353,10 @@
                         <span class="value">{{ request.amount }} บาท</span>
                     </div>
                     <div class="item-row">
+                        <span>ผู้ขอเบิก</span>
+                        <span class="value">{{ request.requester_name if request.requester_name is defined else request.user_id }}</span>
+                    </div>
+                    <div class="item-row">
                         <span>เหตุผล</span>
                         <span class="value">{{ request.reason }}</span>
                     </div>
@@ -347,9 +366,11 @@
                     </div>
                     <div class="item-row">
                         <span>วัน-เวลาที่ขอ (เวลาไทย)</span>
-                        <span class="value">
-                            {{ request.created_at_bkk_display if request.created_at_bkk_display is defined else (request.created_date_bkk if request.created_date_bkk is defined else '') }}
-                        </span>
+                        <span class="value">{{ request.created_at_bkk_display if request.created_at_bkk_display is defined else (request.created_date_bkk if request.created_date_bkk is defined else '') }}</span>
+                    </div>
+                    <div class="item-row">
+                        <span>ผู้ปฏิเสธ</span>
+                        <span class="value">{{ request.rejected_by if request.rejected_by is defined and request.rejected_by else '-' }}</span>
                     </div>
                 </div>
                 {% endfor %}
